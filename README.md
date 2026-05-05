@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. The public API examples below describe the planned v1 API and will become available as later implementation phases land.
+> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. Repository and DAO-service examples below describe the planned v1 API and will become available as later implementation phases land.
 
 ## Why This Library
 
@@ -50,11 +50,22 @@ api 'org.springframework.boot:spring-boot-starter-data-r2dbc'
 
 Publication coordinates are not defined yet. Until the library is published, consume it as a local Gradle dependency or included build.
 
-## Planned Entity Model
+## Entity Model
 
 Hard-delete entities extend `BaseEntity<ID>` or a concrete specialization such as `UuidEntity`.
 
 Soft-delete entities extend `SoftDeleteEntity<ID>` or `SoftDeleteUuidEntity`.
+
+These public base classes are currently available:
+
+```text
+anordine.dao.simplifier.webflux.entity.BaseEntity
+anordine.dao.simplifier.webflux.entity.UuidEntity
+anordine.dao.simplifier.webflux.entity.SoftDeleteEntity
+anordine.dao.simplifier.webflux.entity.SoftDeleteUuidEntity
+```
+
+`BaseEntity<ID>` implements Spring Data `Persistable<ID>`. DAO services call `prePersist(...)` before saving and `markAsNotNew()` after a successful save so Spring Data R2DBC can choose insert or update correctly.
 
 Soft-delete entities have fixed fields:
 
@@ -89,6 +100,14 @@ public class UserEntity extends SoftDeleteUuidEntity {
     }
 }
 ```
+
+Lifecycle behavior:
+
+- `prePersist()` generates an id when absent.
+- `createdAt` is set when preparing an insert.
+- `updatedAt` is refreshed every time `prePersist(...)` runs.
+- `prePersist(true)` forces an assigned-id insert and fails when the id is missing.
+- `markAsNotNew()` clears the Spring Data insert flag after a successful save.
 
 ## Planned Repositories
 
@@ -221,7 +240,9 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase only contains the package/test foundation. The v1 design does not include:
+The current codebase contains the package/test foundation and reusable entity hierarchy. Repository markers, DAO services, exception factories, metadata helpers, pagination, streaming reads, and delete behavior are still planned for later phases.
+
+The v1 design does not include:
 
 - custom repository base-class overrides
 - automatic rewriting of derived repository methods
