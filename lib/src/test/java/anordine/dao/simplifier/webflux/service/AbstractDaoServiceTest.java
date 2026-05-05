@@ -18,7 +18,9 @@ import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactory;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -571,6 +573,86 @@ class AbstractDaoServiceTest {
                         )
                         .map(SoftDeleteFixture::getName))
                 .expectNext("alpha")
+                .verifyComplete();
+    }
+
+    @Test
+    void rawSqlPageMapsDtoRowsAndReturnsTotalCount() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(
+                        hardFixture(uuid(1), "alpha"),
+                        hardFixture(uuid(2), "beta"),
+                        hardFixture(uuid(3), "apex")
+                ), true)
+                .collectList()
+                .block();
+
+        StepVerifier.create(context.hardService().findPage(
+                        """
+                                SELECT "id" AS "id", "name" AS "name"
+                                FROM "hard_delete_fixture"
+                                WHERE "name" LIKE :namePrefix
+                                ORDER BY "name" ASC
+                                """,
+                        """
+                                SELECT COUNT(*)
+                                FROM "hard_delete_fixture"
+                                WHERE "name" LIKE :namePrefix
+                                """,
+                        Map.of("namePrefix", "a%"),
+                        PageRequest.of(1, 1),
+                        (row, metadata) -> new NameProjection(
+                                row.get("id", UUID.class),
+                                row.get("name", String.class)
+                        )
+                ))
+                .assertNext(page -> {
+                    assertEquals(2L, page.getTotalElements());
+                    assertEquals(2, page.getTotalPages());
+                    assertEquals(1, page.getNumber());
+                    assertEquals(1, page.getNumberOfElements());
+                    assertEquals(List.of(new NameProjection(uuid(3), "apex")), page.getContent());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void rawSqlPageBindsNullParameters() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(hardFixture(uuid(1), "alpha"), hardFixture(uuid(2), "beta")), true)
+                .collectList()
+                .block();
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("nameFilter", null);
+
+        StepVerifier.create(context.hardService().findPage(
+                        """
+                                SELECT "id" AS "id", "name" AS "name"
+                                FROM "hard_delete_fixture"
+                                WHERE (:nameFilter IS NULL OR "name" = :nameFilter)
+                                ORDER BY "name" ASC
+                                """,
+                        """
+                                SELECT COUNT(*)
+                                FROM "hard_delete_fixture"
+                                WHERE (:nameFilter IS NULL OR "name" = :nameFilter)
+                                """,
+                        parameters,
+                        PageRequest.of(0, 10),
+                        (row, metadata) -> new NameProjection(
+                                row.get("id", UUID.class),
+                                row.get("name", String.class)
+                        )
+                ))
+                .assertNext(page -> {
+                    assertEquals(2L, page.getTotalElements());
+                    assertEquals(List.of(
+                            new NameProjection(uuid(1), "alpha"),
+                            new NameProjection(uuid(2), "beta")
+                    ), page.getContent());
+                })
                 .verifyComplete();
     }
 
@@ -1317,5 +1399,8 @@ class AbstractDaoServiceTest {
     private interface NamedFixture {
 
         String getName();
+    }
+
+    private record NameProjection(UUID id, String name) {
     }
 }

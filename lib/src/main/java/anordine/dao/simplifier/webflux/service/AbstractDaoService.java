@@ -10,12 +10,16 @@ import anordine.dao.simplifier.webflux.exception.EntityNotFoundExceptionFactory;
 import anordine.dao.simplifier.webflux.metadata.EntityMetadata;
 import anordine.dao.simplifier.webflux.metadata.EntityMetadataResolver;
 import anordine.dao.simplifier.webflux.repository.SimplifiedR2dbcRepository;
+import io.r2dbc.spi.Row;
+import io.r2dbc.spi.RowMetadata;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.StringJoiner;
+import java.util.function.BiFunction;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -44,6 +48,9 @@ public abstract class AbstractDaoService<
         E extends BaseEntity<ID>,
         R extends SimplifiedR2dbcRepository<E, ID>,
         ID> {
+
+    private static final String RAW_PAGE_LIMIT_PARAMETER = "__daoPageLimit";
+    private static final String RAW_PAGE_OFFSET_PARAMETER = "__daoPageOffset";
 
     protected final R repository;
     protected final R2dbcEntityTemplate template;
@@ -251,6 +258,58 @@ public abstract class AbstractDaoService<
         Objects.requireNonNull(criteria, "criteria must not be null");
         Objects.requireNonNull(sort, "sort must not be null");
         return template.select(readQuery(criteria).sort(sort), entityClass);
+    }
+
+    /**
+     * Finds one classic count-backed page for caller-owned SQL and maps rows to
+     * DTO projections.
+     *
+     * <p>This helper does not rewrite SQL. It does not inject soft-delete
+     * predicates into {@code baseQuery} or {@code countQuery}; callers querying
+     * soft-delete tables must include {@code deleted = false} themselves.
+     *
+     * <p>For v1 this helper appends only {@code LIMIT} and {@code OFFSET}.
+     * {@link Pageable#getSort()} is not appended because raw SQL sort
+     * properties need caller-owned normalization or whitelisting. Include a
+     * safe {@code ORDER BY} clause in {@code baseQuery} when deterministic
+     * ordering is required.
+     *
+     * <p>Null parameter values are supported with {@code bindNull}. Because the
+     * parameter map does not carry null value types, nulls are bound as
+     * {@link String} in v1.
+     */
+    @Transactional(readOnly = true)
+    public <T> Mono<Page<T>> findPage(
+            String baseQuery,
+            String countQuery,
+            Map<String, Object> parameters,
+            Pageable pageable,
+            BiFunction<Row, RowMetadata, T> mapper
+    ) {
+        Objects.requireNonNull(baseQuery, "baseQuery must not be null");
+        Objects.requireNonNull(countQuery, "countQuery must not be null");
+        Objects.requireNonNull(parameters, "parameters must not be null");
+        Objects.requireNonNull(pageable, "pageable must not be null");
+        Objects.requireNonNull(mapper, "mapper must not be null");
+        validateRawPageParameterNames(parameters, pageable);
+
+        DatabaseClient.GenericExecuteSpec pageSpec = template.getDatabaseClient()
+                .sql(pageSql(baseQuery, pageable));
+        pageSpec = bindRawParameters(pageSpec, parameters);
+        if (pageable.isPaged()) {
+            pageSpec = pageSpec.bind(RAW_PAGE_LIMIT_PARAMETER, pageable.getPageSize())
+                    .bind(RAW_PAGE_OFFSET_PARAMETER, pageable.getOffset());
+        }
+
+        DatabaseClient.GenericExecuteSpec countSpec = template.getDatabaseClient()
+                .sql(trimTrailingSemicolon(countQuery));
+        countSpec = bindRawParameters(countSpec, parameters);
+
+        Mono<List<T>> content = pageSpec.map(mapper::apply).all().collectList();
+        Mono<Long> total = countSpec.map((row, rowMetadata) -> countValue(row)).one();
+
+        return Mono.zip(content, total)
+                .map(result -> new PageImpl<>(result.getT1(), pageable, result.getT2()));
     }
 
     /**
@@ -544,6 +603,60 @@ public abstract class AbstractDaoService<
             boundSpec = boundSpec.bind(prefix + index, valueList.get(index));
         }
         return boundSpec;
+    }
+
+    private String pageSql(String baseQuery, Pageable pageable) {
+        String sql = trimTrailingSemicolon(baseQuery);
+        if (pageable.isUnpaged()) {
+            return sql;
+        }
+        return sql + " LIMIT :" + RAW_PAGE_LIMIT_PARAMETER
+                + " OFFSET :" + RAW_PAGE_OFFSET_PARAMETER;
+    }
+
+    private String trimTrailingSemicolon(String sql) {
+        String trimmed = sql.stripTrailing();
+        if (trimmed.endsWith(";")) {
+            return trimmed.substring(0, trimmed.length() - 1).stripTrailing();
+        }
+        return trimmed;
+    }
+
+    private void validateRawPageParameterNames(Map<String, Object> parameters, Pageable pageable) {
+        for (String name : parameters.keySet()) {
+            Objects.requireNonNull(name, "parameters must not contain null names");
+        }
+        if (pageable.isPaged()
+                && (parameters.containsKey(RAW_PAGE_LIMIT_PARAMETER)
+                        || parameters.containsKey(RAW_PAGE_OFFSET_PARAMETER))) {
+            throw new IllegalArgumentException(
+                    "parameters must not contain reserved raw page names "
+                            + RAW_PAGE_LIMIT_PARAMETER + " or " + RAW_PAGE_OFFSET_PARAMETER
+            );
+        }
+    }
+
+    private DatabaseClient.GenericExecuteSpec bindRawParameters(
+            DatabaseClient.GenericExecuteSpec spec,
+            Map<String, Object> parameters
+    ) {
+        DatabaseClient.GenericExecuteSpec boundSpec = spec;
+        for (Map.Entry<String, Object> parameter : parameters.entrySet()) {
+            if (parameter.getValue() == null) {
+                boundSpec = boundSpec.bindNull(parameter.getKey(), String.class);
+            } else {
+                boundSpec = boundSpec.bind(parameter.getKey(), parameter.getValue());
+            }
+        }
+        return boundSpec;
+    }
+
+    private Long countValue(Row row) {
+        Object value = row.get(0);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        throw new IllegalStateException("countQuery must return a numeric value in the first column");
     }
 
     private Query readQuery(Criteria criteria) {

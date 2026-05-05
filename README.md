@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. T08 has added criteria-based reads and classic count-backed pagination. T09 has added cursor page and cursor encoding primitives. T10 has added id-based DAO cursor pagination. T11 has added updated-at plus id DAO cursor pagination. T12 has added explicit streaming reads. Raw SQL page helpers are still planned for a later phase.
+> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. T08 has added criteria-based reads and classic count-backed pagination. T09 has added cursor page and cursor encoding primitives. T10 has added id-based DAO cursor pagination. T11 has added updated-at plus id DAO cursor pagination. T12 has added explicit streaming reads. T13 has added raw SQL page helpers for DTO projections.
 
 ## Why This Library
 
@@ -198,6 +198,7 @@ findAllByIdCursor(cursorId, limit, direction)
 findAllByUpdatedAtCursor(cursorUpdatedAt, cursorId, limit, direction)
 streamAll()
 streamAllByCriteria(criteria, sort)
+findPage(baseQuery, countQuery, parameters, pageable, mapper)
 delete(entity)
 deleteById(id)
 deleteAll()
@@ -301,6 +302,34 @@ Flux<UserEntity> activeUsers =
 
 Returning `Flux<T>` from a controller does not automatically mean the HTTP response is Server-Sent Events. Use an appropriate media type such as `application/x-ndjson` or `text/event-stream` when streaming behavior is required.
 
+Raw SQL page helpers are available for custom DTO projections when criteria queries are not enough:
+
+```java
+Mono<Page<UserSummary>> page = dao.findPage(
+        """
+        SELECT id, email
+        FROM users
+        WHERE deleted = false AND email LIKE :emailPattern
+        ORDER BY email ASC
+        """,
+        """
+        SELECT COUNT(*)
+        FROM users
+        WHERE deleted = false AND email LIKE :emailPattern
+        """,
+        Map.of("emailPattern", "%@example.com"),
+        PageRequest.of(0, 25),
+        (row, metadata) -> new UserSummary(
+                row.get("id", UUID.class),
+                row.get("email", String.class)
+        )
+);
+```
+
+`findPage(...)` appends `LIMIT` and `OFFSET`, binds all supplied parameters, supports null values with `bindNull`, and returns a Spring Data `Page<T>`.
+
+The helper does not rewrite SQL. It does not inject soft-delete predicates, so include `deleted = false` yourself when querying soft-delete tables. It also does not append `Pageable` sort values in v1; put a normalized or whitelisted `ORDER BY` clause in `baseQuery` when deterministic ordering is required.
+
 ## Exceptions
 
 Required-read methods such as `findByIdRequired(...)` use a configurable exception factory. The exception API is currently available:
@@ -345,7 +374,7 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, classic criteria/page reads, cursor page/encoding primitives, id-based DAO cursor pagination, updated-at plus id DAO cursor pagination, and streaming reads. Raw SQL page helpers are still planned for a later phase.
+The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, classic criteria/page reads, cursor page/encoding primitives, id-based DAO cursor pagination, updated-at plus id DAO cursor pagination, streaming reads, and raw SQL page helpers.
 
 The v1 design does not include:
 
