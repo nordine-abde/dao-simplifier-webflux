@@ -1,6 +1,9 @@
 package anordine.dao.simplifier.webflux.service;
 
 import anordine.dao.simplifier.webflux.entity.BaseEntity;
+import anordine.dao.simplifier.webflux.cursor.CursorCodec;
+import anordine.dao.simplifier.webflux.cursor.CursorPage;
+import anordine.dao.simplifier.webflux.cursor.IdCursor;
 import anordine.dao.simplifier.webflux.exception.DefaultEntityNotFoundExceptionFactory;
 import anordine.dao.simplifier.webflux.exception.EntityNotFoundExceptionFactory;
 import anordine.dao.simplifier.webflux.metadata.EntityMetadata;
@@ -45,6 +48,7 @@ public abstract class AbstractDaoService<
     protected final Class<E> entityClass;
     protected final EntityNotFoundExceptionFactory exceptionFactory;
     protected final EntityMetadata metadata;
+    private final CursorCodec cursorCodec = new CursorCodec();
 
     protected AbstractDaoService(
             R repository,
@@ -234,6 +238,29 @@ public abstract class AbstractDaoService<
     }
 
     /**
+     * Finds one bounded seek page ordered by id. When {@code cursorId} is
+     * {@code null}, this reads the first page. Soft-delete entities return
+     * only rows with {@code deleted = false}.
+     */
+    @Transactional(readOnly = true)
+    public Mono<CursorPage<E>> findAllByIdCursor(
+            ID cursorId,
+            int limit,
+            Sort.Direction direction
+    ) {
+        validateCursorLimit(limit);
+        Objects.requireNonNull(direction, "direction must not be null");
+
+        Query cursorQuery = query(readCriteria(idCursorCriteria(cursorId, direction)))
+                .sort(Sort.by(direction, idPropertyName()))
+                .limit(limit + 1);
+
+        return template.select(cursorQuery, entityClass)
+                .collectList()
+                .map(fetchedRows -> idCursorPage(fetchedRows, limit));
+    }
+
+    /**
      * Deletes a row by the entity id and returns the affected row count.
      * Soft-delete entities are updated in place instead of being physically
      * removed.
@@ -346,6 +373,34 @@ public abstract class AbstractDaoService<
                 .bind("visible", false);
         spec = bindIndexed(spec, "id", ids);
         return spec.fetch().rowsUpdated();
+    }
+
+    private CursorPage<E> idCursorPage(List<E> fetchedRows, int limit) {
+        boolean hasNext = fetchedRows.size() > limit;
+        List<E> content = hasNext ? fetchedRows.subList(0, limit) : fetchedRows;
+        String nextCursor = hasNext
+                ? cursorCodec.encode(new IdCursor<>(content.getLast().getId()))
+                : null;
+        return new CursorPage<>(content, nextCursor, hasNext);
+    }
+
+    private Criteria idCursorCriteria(ID cursorId, Sort.Direction direction) {
+        if (cursorId == null) {
+            return Criteria.empty();
+        }
+        if (direction.isAscending()) {
+            return Criteria.where(idPropertyName()).greaterThan(cursorId);
+        }
+        return Criteria.where(idPropertyName()).lessThan(cursorId);
+    }
+
+    private void validateCursorLimit(int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be greater than 0");
+        }
+        if (limit == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("limit must be less than Integer.MAX_VALUE");
+        }
     }
 
     private String namedParameterList(String prefix, int size) {

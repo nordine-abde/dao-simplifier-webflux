@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. T08 has added criteria-based reads and classic count-backed pagination. T09 has added cursor page and cursor encoding primitives. DAO cursor pagination methods, streaming reads, and raw SQL page helpers are still planned for later phases.
+> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. T08 has added criteria-based reads and classic count-backed pagination. T09 has added cursor page and cursor encoding primitives. T10 has added id-based DAO cursor pagination. Updated-at cursor pagination, streaming reads, and raw SQL page helpers are still planned for later phases.
 
 ## Why This Library
 
@@ -194,6 +194,7 @@ findAll(sort)
 findAll(pageable)
 findAllByCriteria(criteria, pageable)
 findAllByIds(ids)
+findAllByIdCursor(cursorId, limit, direction)
 delete(entity)
 deleteById(id)
 deleteAll()
@@ -242,7 +243,7 @@ If those queries target soft-delete tables, include `deleted = false` yourself.
 
 ## Pagination
 
-Classic count-backed pagination is available through DAO service methods. Cursor page primitives are available, while DAO cursor query methods and streaming reads are planned for later phases. The v1 design keeps three separate read styles.
+Classic count-backed pagination and id-based cursor pagination are available through DAO service methods. Updated-at cursor pagination and streaming reads are planned for later phases. The v1 design keeps three separate read styles.
 
 Classic pages are useful for admin screens that need total counts:
 
@@ -267,12 +268,14 @@ anordine.dao.simplifier.webflux.cursor.CursorDecodingException
 
 `CursorCodec` encodes cursor values as opaque Base64-url strings with stable type discriminators. Applications should not parse or construct those strings directly.
 
-Planned DAO cursor pagination methods will return `CursorPage<T>`:
+Id-based DAO cursor pagination is available when stable ordering by id is acceptable:
 
 ```java
-Mono<CursorPage<UserEntity>> page =
-        dao.findAllByUpdatedAtCursor(cursorUpdatedAt, cursorId, 50, Sort.Direction.DESC);
+Mono<CursorPage<UserEntity>> firstPage =
+        dao.findAllByIdCursor(null, 50, Sort.Direction.ASC);
 ```
+
+`findAllByIdCursor(cursorId, limit, direction)` reads rows after the supplied id, orders by id in the selected direction, fetches `limit + 1` rows internally, and returns at most `limit` entities. When another page exists, `nextCursor` is generated from the last returned id with `CursorCodec`; it is `null` on the final page. For soft-delete entities, DAO-owned cursor reads include `deleted = false`.
 
 Streaming reads return `Flux<T>` and are meant for endpoints or pipelines that genuinely stream rows:
 
@@ -326,7 +329,7 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, classic criteria/page reads, and cursor page/encoding primitives. DAO cursor query methods, streaming reads, and raw SQL page helpers are still planned for later phases.
+The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, classic criteria/page reads, cursor page/encoding primitives, and id-based DAO cursor pagination. Updated-at cursor pagination, streaming reads, and raw SQL page helpers are still planned for later phases.
 
 The v1 design does not include:
 

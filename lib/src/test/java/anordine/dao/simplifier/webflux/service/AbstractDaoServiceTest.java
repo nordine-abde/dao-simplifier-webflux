@@ -3,8 +3,11 @@ package anordine.dao.simplifier.webflux.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import anordine.dao.simplifier.webflux.cursor.CursorCodec;
 import anordine.dao.simplifier.webflux.entity.BaseEntity;
 import anordine.dao.simplifier.webflux.entity.SoftDeleteUuidEntity;
 import anordine.dao.simplifier.webflux.entity.UuidEntity;
@@ -497,10 +500,165 @@ class AbstractDaoServiceTest {
                 .verifyComplete();
     }
 
+    @Test
+    void idCursorFirstPageAscending() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(
+                        hardFixture(uuid(3), "third"),
+                        hardFixture(uuid(1), "first"),
+                        hardFixture(uuid(2), "second")
+                ), true)
+                .collectList()
+                .block();
+
+        StepVerifier.create(context.hardService().findAllByIdCursor(null, 2, Sort.Direction.ASC))
+                .assertNext(page -> {
+                    assertTrue(page.hasNext());
+                    assertEquals(List.of(uuid(1), uuid(2)), ids(page.content()));
+                    assertEquals(uuid(2), decodeIdCursor(page.nextCursor()));
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void idCursorNextPageAscending() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(
+                        hardFixture(uuid(1), "first"),
+                        hardFixture(uuid(2), "second"),
+                        hardFixture(uuid(3), "third"),
+                        hardFixture(uuid(4), "fourth")
+                ), true)
+                .collectList()
+                .block();
+
+        UUID nextCursorId = context.hardService()
+                .findAllByIdCursor(null, 2, Sort.Direction.ASC)
+                .map(page -> decodeIdCursor(page.nextCursor()))
+                .block();
+
+        StepVerifier.create(context.hardService().findAllByIdCursor(nextCursorId, 2, Sort.Direction.ASC))
+                .assertNext(page -> {
+                    assertFalse(page.hasNext());
+                    assertEquals(List.of(uuid(3), uuid(4)), ids(page.content()));
+                    assertNull(page.nextCursor());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void idCursorFirstPageDescending() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(
+                        hardFixture(uuid(1), "first"),
+                        hardFixture(uuid(2), "second"),
+                        hardFixture(uuid(3), "third")
+                ), true)
+                .collectList()
+                .block();
+
+        StepVerifier.create(context.hardService().findAllByIdCursor(null, 2, Sort.Direction.DESC))
+                .assertNext(page -> {
+                    assertTrue(page.hasNext());
+                    assertEquals(List.of(uuid(3), uuid(2)), ids(page.content()));
+                    assertEquals(uuid(2), decodeIdCursor(page.nextCursor()));
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void idCursorNextPageDescending() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(
+                        hardFixture(uuid(1), "first"),
+                        hardFixture(uuid(2), "second"),
+                        hardFixture(uuid(3), "third"),
+                        hardFixture(uuid(4), "fourth")
+                ), true)
+                .collectList()
+                .block();
+
+        UUID nextCursorId = context.hardService()
+                .findAllByIdCursor(null, 2, Sort.Direction.DESC)
+                .map(page -> decodeIdCursor(page.nextCursor()))
+                .block();
+
+        StepVerifier.create(context.hardService().findAllByIdCursor(nextCursorId, 2, Sort.Direction.DESC))
+                .assertNext(page -> {
+                    assertFalse(page.hasNext());
+                    assertEquals(List.of(uuid(2), uuid(1)), ids(page.content()));
+                    assertNull(page.nextCursor());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void idCursorFinalPageHasNoNextCursor() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(hardFixture(uuid(1), "first"), hardFixture(uuid(2), "second")), true)
+                .collectList()
+                .block();
+
+        StepVerifier.create(context.hardService().findAllByIdCursor(null, 2, Sort.Direction.ASC))
+                .assertNext(page -> {
+                    assertFalse(page.hasNext());
+                    assertEquals(List.of(uuid(1), uuid(2)), ids(page.content()));
+                    assertNull(page.nextCursor());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void idCursorSoftDeleteRowsAreExcluded() {
+        TestContext context = createContext();
+        context.softService()
+                .saveAll(List.of(
+                        softFixture(uuid(1), "first"),
+                        softFixture(uuid(2), "second"),
+                        softFixture(uuid(3), "third")
+                ), true)
+                .collectList()
+                .block();
+        markSoftDeleted(context.client(), uuid(2));
+
+        StepVerifier.create(context.softService().findAllByIdCursor(null, 2, Sort.Direction.ASC))
+                .assertNext(page -> {
+                    assertFalse(page.hasNext());
+                    assertEquals(List.of(uuid(1), uuid(3)), ids(page.content()));
+                    assertNull(page.nextCursor());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void idCursorRejectsInvalidLimit() {
+        TestContext context = createContext();
+
+        assertEquals(
+                "limit must be greater than 0",
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> context.hardService().findAllByIdCursor(null, 0, Sort.Direction.ASC)
+                ).getMessage()
+        );
+        assertEquals(
+                "limit must be greater than 0",
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> context.hardService().findAllByIdCursor(null, -1, Sort.Direction.ASC)
+                ).getMessage()
+        );
+    }
+
     private static TestContext createContext() {
         int databaseId = DATABASE_SEQUENCE.incrementAndGet();
         ConnectionFactory connectionFactory = ConnectionFactories.get(
-                "r2dbc:h2:mem:///dao_service_t07_" + databaseId + ";DB_CLOSE_DELAY=-1"
+                "r2dbc:h2:mem:///dao_service_t10_" + databaseId + ";DB_CLOSE_DELAY=-1"
         );
         R2dbcEntityTemplate template = new R2dbcEntityTemplate(connectionFactory);
         DatabaseClient client = DatabaseClient.create(connectionFactory);
@@ -567,9 +725,21 @@ class AbstractDaoServiceTest {
         return entity;
     }
 
+    private static HardDeleteFixture hardFixture(UUID id, String name) {
+        HardDeleteFixture entity = hardFixture(name);
+        entity.setId(id);
+        return entity;
+    }
+
     private static SoftDeleteFixture softFixture(String name) {
         SoftDeleteFixture entity = new SoftDeleteFixture();
         entity.setName(name);
+        return entity;
+    }
+
+    private static SoftDeleteFixture softFixture(UUID id, String name) {
+        SoftDeleteFixture entity = softFixture(name);
+        entity.setId(id);
         return entity;
     }
 
@@ -577,6 +747,20 @@ class AbstractDaoServiceTest {
         return fixtures.stream()
                 .map(NamedFixture::getName)
                 .toList();
+    }
+
+    private static List<UUID> ids(List<? extends BaseEntity<UUID>> fixtures) {
+        return fixtures.stream()
+                .map(BaseEntity::getId)
+                .toList();
+    }
+
+    private static UUID uuid(int value) {
+        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012x", value));
+    }
+
+    private static UUID decodeIdCursor(String cursor) {
+        return new CursorCodec().decodeIdCursor(cursor, UUID::fromString).id();
     }
 
     private record TestContext(
