@@ -126,14 +126,17 @@ You are implementing one phase of dao-simplifier-webflux.
 Task: $task_id - $title
 
 Required workflow:
-1. Re-read the full documentation in docs/initial-design.md.
-2. Re-read the full task list in docs/implementation-tasks.md.
-3. Locate the section for task $task_id and implement only that task.
-4. Read the current source and tests before editing.
-5. Write or update focused tests for this task.
-6. Run the focused tests when useful, then run: $TEST_COMMAND
-7. Confirm the implementation matches the design and tests pass.
-8. Do not commit. The runner script will commit this phase programmatically after its own verification passes.
+1. Re-read AGENTS.md.
+2. Re-read the full documentation in docs/initial-design.md.
+3. Re-read the full task list in docs/implementation-tasks.md.
+4. Re-read README.md.
+5. Locate the section for task $task_id and implement only that task.
+6. Read the current source and tests before editing.
+7. Write or update focused tests for this task.
+8. Update README.md when this task changes public API, setup, examples, behavior, limitations, or implementation status.
+9. Run the focused tests when useful, then run: $TEST_COMMAND
+10. Confirm the implementation matches the design and tests pass.
+11. Do not commit. The runner script will commit this phase programmatically after its own verification passes.
 
 Constraints:
 - Keep Java 25.

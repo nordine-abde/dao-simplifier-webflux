@@ -4,11 +4,13 @@ This is the phased implementation backlog for `dao-simplifier-webflux`.
 
 Each task is intended to be implemented independently by an automated Codex run. Before starting any task, re-read:
 
+- `AGENTS.md`
 - `docs/initial-design.md`
 - `docs/implementation-tasks.md`
+- `README.md`
 - the current source and test tree
 
-Every task must include implementation, focused tests, and a successful Gradle test run before commit.
+Every task must include implementation, focused tests, README updates when public behavior or usage changes, and a successful Gradle test run before commit.
 
 ## Task List
 
@@ -446,7 +448,7 @@ Scope:
 - Add or refine Javadocs for all public types and methods listed in `docs/initial-design.md`.
 - Ensure package names, method names, and behavior match the design.
 - Ensure no generated sample code remains.
-- Add a concise README usage section if no README exists, or update the existing README.
+- Update the public README so dependency notes, usage examples, API names, limitations, and implementation status match the final code.
 - Review tests for redundant fixtures and consolidate only when it improves clarity.
 - Run the full test suite.
 
@@ -470,11 +472,13 @@ Document DAO simplifier public API
 Automated task runners should follow these rules:
 
 - Work on exactly one task per Codex invocation.
+- Re-read `AGENTS.md`.
 - Re-read the full documentation before making changes.
 - Respect all design decisions in `docs/initial-design.md`.
 - Keep changes scoped to the selected task.
 - Do not implement future tasks early except for tiny support code that is impossible to avoid.
 - Write or update tests in the same task.
+- Update `README.md` in the same task when public API, setup, behavior, examples, or limitations change.
 - Run the focused tests first when useful, then run `./gradlew test`.
 - Do not revert unrelated user changes.
 - Commit only after tests pass.
