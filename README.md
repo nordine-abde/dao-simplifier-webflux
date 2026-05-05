@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver used by later DAO-service SQL helpers. DAO-service examples below describe the planned v1 API and will become available as later implementation phases land.
+> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. Delete operations, pagination, cursor pagination, streaming reads, and raw SQL page helpers are still planned for later phases.
 
 ## Why This Library
 
@@ -134,7 +134,7 @@ They add no lifecycle, soft-delete, or delete behavior beyond Spring Data's `Rea
 
 No custom `@EnableR2dbcRepositories(repositoryBaseClass = ...)` configuration is required for v1.
 
-## Planned DAO Services
+## DAO Services
 
 Applications create concrete services by extending the abstract DAO service and passing the entity class explicitly.
 
@@ -161,24 +161,49 @@ The DAO service owns common methods such as:
 
 ```java
 dao.save(user);
+dao.save(user, true); // force insert with an assigned id
 dao.findById(id);
 dao.findByIdRequired(id);
 dao.findAll();
 dao.count();
-dao.deleteById(id);
 ```
 
-Delete methods return affected row counts:
+These public DAO service types are currently available:
+
+```text
+anordine.dao.simplifier.webflux.service.AbstractDaoService
+```
+
+Implemented DAO methods:
+
+```text
+save(entity)
+save(entity, asNewWithId)
+saveAll(entities)
+saveAll(entities, asNewWithId)
+findById(id)
+findByIdRequired(id)
+existsById(id)
+count()
+findAll()
+findAllByIds(ids)
+```
+
+`save(...)` and `saveAll(...)` call `prePersist(...)`, delegate to the repository, and mark successfully saved entities as not new.
+
+For soft-delete entities, DAO-owned read methods include `deleted = false`. This filtering does not apply to repository methods that applications call directly.
+
+Planned delete methods will return affected row counts:
 
 ```java
 Mono<Long> deletedRows = dao.deleteById(id);
 ```
 
-For soft-delete entities, `deleteById(...)` updates `deleted`, `deleted_at`, and `updated_at` directly without fetching the entity first.
+For soft-delete entities, the planned `deleteById(...)` behavior will update `deleted`, `deleted_at`, and `updated_at` directly without fetching the entity first.
 
 ## Metadata Helpers
 
-The library currently includes metadata helper types used by the planned DAO services:
+The library currently includes metadata helper types used by DAO services:
 
 ```text
 anordine.dao.simplifier.webflux.metadata.EntityMetadata
@@ -204,7 +229,7 @@ If those queries target soft-delete tables, include `deleted = false` yourself.
 
 ## Pagination
 
-The library supports three separate read styles.
+Pagination, cursor pagination, and streaming reads are planned for later phases. The v1 design keeps three separate read styles.
 
 Classic pages are useful for admin screens that need total counts:
 
@@ -229,7 +254,7 @@ Returning `Flux<T>` from a controller does not automatically mean the HTTP respo
 
 ## Exceptions
 
-Required-read methods such as the planned `findByIdRequired(...)` use a configurable exception factory. The exception API is currently available:
+Required-read methods such as `findByIdRequired(...)` use a configurable exception factory. The exception API is currently available:
 
 ```text
 anordine.dao.simplifier.webflux.exception.EntityNotFoundException
@@ -271,7 +296,7 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, and the entity metadata resolver. DAO services, pagination, streaming reads, and delete behavior are still planned for later phases.
+The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, and DAO-service save/basic read methods. Pagination, streaming reads, delete behavior, cursor pagination, and raw SQL page helpers are still planned for later phases.
 
 The v1 design does not include:
 
