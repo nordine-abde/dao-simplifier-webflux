@@ -502,6 +502,79 @@ class AbstractDaoServiceTest {
     }
 
     @Test
+    void streamingReturnsAllHardDeleteRows() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(hardFixture("alpha"), hardFixture("beta")))
+                .collectList()
+                .block();
+
+        StepVerifier.create(context.hardService().streamAll().map(HardDeleteFixture::getName))
+                .recordWith(ArrayList::new)
+                .expectNextCount(2)
+                .consumeRecordedWith(names -> {
+                    assertTrue(names.contains("alpha"));
+                    assertTrue(names.contains("beta"));
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void streamingExcludesSoftDeletedRows() {
+        TestContext context = createContext();
+        context.softService()
+                .saveAll(List.of(softFixture(uuid(1), "visible"), softFixture(uuid(2), "deleted")), true)
+                .collectList()
+                .block();
+        markSoftDeleted(context.client(), uuid(2));
+
+        StepVerifier.create(context.softService().streamAll().map(SoftDeleteFixture::getName))
+                .expectNext("visible")
+                .verifyComplete();
+    }
+
+    @Test
+    void streamingCriteriaAndSortAreHonored() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(hardFixture("alpha"), hardFixture("beta"), hardFixture("apex")))
+                .collectList()
+                .block();
+
+        StepVerifier.create(context.hardService()
+                        .streamAllByCriteria(
+                                Criteria.where("name").like("a%"),
+                                Sort.by("name").descending()
+                        )
+                        .map(HardDeleteFixture::getName))
+                .expectNext("apex", "alpha")
+                .verifyComplete();
+    }
+
+    @Test
+    void streamingCriteriaCombinesSoftDeleteFilter() {
+        TestContext context = createContext();
+        context.softService()
+                .saveAll(List.of(
+                        softFixture(uuid(1), "alpha"),
+                        softFixture(uuid(2), "apex"),
+                        softFixture(uuid(3), "beta")
+                ), true)
+                .collectList()
+                .block();
+        markSoftDeleted(context.client(), uuid(2));
+
+        StepVerifier.create(context.softService()
+                        .streamAllByCriteria(
+                                Criteria.where("name").like("a%"),
+                                Sort.by("name").ascending()
+                        )
+                        .map(SoftDeleteFixture::getName))
+                .expectNext("alpha")
+                .verifyComplete();
+    }
+
+    @Test
     void idCursorFirstPageAscending() {
         TestContext context = createContext();
         context.hardService()

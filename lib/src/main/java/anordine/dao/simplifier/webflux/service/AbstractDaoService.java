@@ -224,6 +224,36 @@ public abstract class AbstractDaoService<
     }
 
     /**
+     * Streams all rows by returning the {@link R2dbcEntityTemplate} result
+     * {@link Flux} directly. Soft-delete entities return only rows with
+     * {@code deleted = false}.
+     *
+     * <p>HTTP streaming depends on the endpoint media type, such as
+     * {@code application/x-ndjson} for newline-delimited JSON or
+     * {@code text/event-stream} for Server-Sent Events.
+     */
+    @Transactional(readOnly = true)
+    public Flux<E> streamAll() {
+        return template.select(readQuery(Criteria.empty()), entityClass);
+    }
+
+    /**
+     * Streams rows matching the supplied criteria and sort by returning the
+     * {@link R2dbcEntityTemplate} result {@link Flux} directly. Soft-delete
+     * entities combine the caller criteria with {@code deleted = false}.
+     *
+     * <p>HTTP streaming depends on the endpoint media type, such as
+     * {@code application/x-ndjson} for newline-delimited JSON or
+     * {@code text/event-stream} for Server-Sent Events.
+     */
+    @Transactional(readOnly = true)
+    public Flux<E> streamAllByCriteria(Criteria criteria, Sort sort) {
+        Objects.requireNonNull(criteria, "criteria must not be null");
+        Objects.requireNonNull(sort, "sort must not be null");
+        return template.select(readQuery(criteria).sort(sort), entityClass);
+    }
+
+    /**
      * Finds rows for the given ids. Soft-delete entities return only rows with
      * {@code deleted = false}.
      */
