@@ -14,6 +14,7 @@ import anordine.dao.simplifier.webflux.entity.SoftDeleteUuidEntity;
 import anordine.dao.simplifier.webflux.entity.UuidEntity;
 import anordine.dao.simplifier.webflux.exception.EntityNotFoundException;
 import anordine.dao.simplifier.webflux.repository.SimplifiedR2dbcRepository;
+import anordine.dao.simplifier.webflux.repository.SimplifiedUuidR2dbcRepository;
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactory;
 import java.time.Instant;
@@ -28,11 +29,15 @@ import org.reactivestreams.Publisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
+import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.data.relational.core.query.Criteria;
 import org.springframework.data.relational.core.query.Query;
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -668,7 +673,7 @@ class AbstractDaoServiceTest {
                 .collectList()
                 .block();
 
-        StepVerifier.create(context.hardService().findAllByIdCursor(null, 2, Sort.Direction.ASC))
+        StepVerifier.create(context.hardService().findAllByIdCursor(2, Sort.Direction.ASC))
                 .assertNext(page -> {
                     assertTrue(page.hasNext());
                     assertEquals(List.of(uuid(1), uuid(2)), ids(page.content()));
@@ -690,12 +695,13 @@ class AbstractDaoServiceTest {
                 .collectList()
                 .block();
 
-        UUID nextCursorId = context.hardService()
-                .findAllByIdCursor(null, 2, Sort.Direction.ASC)
-                .map(page -> decodeIdCursor(page.nextCursor()))
+        String nextCursor = context.hardService()
+                .findAllByIdCursor(2, Sort.Direction.ASC)
+                .map(page -> page.nextCursor())
                 .block();
+        assertNotNull(nextCursor);
 
-        StepVerifier.create(context.hardService().findAllByIdCursor(nextCursorId, 2, Sort.Direction.ASC))
+        StepVerifier.create(context.hardService().findAllByIdCursor(nextCursor, 2, Sort.Direction.ASC))
                 .assertNext(page -> {
                     assertFalse(page.hasNext());
                     assertEquals(List.of(uuid(3), uuid(4)), ids(page.content()));
@@ -716,7 +722,7 @@ class AbstractDaoServiceTest {
                 .collectList()
                 .block();
 
-        StepVerifier.create(context.hardService().findAllByIdCursor(null, 2, Sort.Direction.DESC))
+        StepVerifier.create(context.hardService().findAllByIdCursor(2, Sort.Direction.DESC))
                 .assertNext(page -> {
                     assertTrue(page.hasNext());
                     assertEquals(List.of(uuid(3), uuid(2)), ids(page.content()));
@@ -738,12 +744,13 @@ class AbstractDaoServiceTest {
                 .collectList()
                 .block();
 
-        UUID nextCursorId = context.hardService()
-                .findAllByIdCursor(null, 2, Sort.Direction.DESC)
-                .map(page -> decodeIdCursor(page.nextCursor()))
+        String nextCursor = context.hardService()
+                .findAllByIdCursor(2, Sort.Direction.DESC)
+                .map(page -> page.nextCursor())
                 .block();
+        assertNotNull(nextCursor);
 
-        StepVerifier.create(context.hardService().findAllByIdCursor(nextCursorId, 2, Sort.Direction.DESC))
+        StepVerifier.create(context.hardService().findAllByIdCursor(nextCursor, 2, Sort.Direction.DESC))
                 .assertNext(page -> {
                     assertFalse(page.hasNext());
                     assertEquals(List.of(uuid(2), uuid(1)), ids(page.content()));
@@ -760,7 +767,7 @@ class AbstractDaoServiceTest {
                 .collectList()
                 .block();
 
-        StepVerifier.create(context.hardService().findAllByIdCursor(null, 2, Sort.Direction.ASC))
+        StepVerifier.create(context.hardService().findAllByIdCursor(2, Sort.Direction.ASC))
                 .assertNext(page -> {
                     assertFalse(page.hasNext());
                     assertEquals(List.of(uuid(1), uuid(2)), ids(page.content()));
@@ -782,7 +789,7 @@ class AbstractDaoServiceTest {
                 .block();
         markSoftDeleted(context.client(), uuid(2));
 
-        StepVerifier.create(context.softService().findAllByIdCursor(null, 2, Sort.Direction.ASC))
+        StepVerifier.create(context.softService().findAllByIdCursor(2, Sort.Direction.ASC))
                 .assertNext(page -> {
                     assertFalse(page.hasNext());
                     assertEquals(List.of(uuid(1), uuid(3)), ids(page.content()));
@@ -799,14 +806,14 @@ class AbstractDaoServiceTest {
                 "limit must be greater than 0",
                 assertThrows(
                         IllegalArgumentException.class,
-                        () -> context.hardService().findAllByIdCursor(null, 0, Sort.Direction.ASC)
+                        () -> context.hardService().findAllByIdCursor(0, Sort.Direction.ASC)
                 ).getMessage()
         );
         assertEquals(
                 "limit must be greater than 0",
                 assertThrows(
                         IllegalArgumentException.class,
-                        () -> context.hardService().findAllByIdCursor(null, -1, Sort.Direction.ASC)
+                        () -> context.hardService().findAllByIdCursor(-1, Sort.Direction.ASC)
                 ).getMessage()
         );
     }
@@ -859,18 +866,14 @@ class AbstractDaoServiceTest {
         setHardUpdatedAt(context.client(), uuid(3), secondUpdatedAt);
         setHardUpdatedAt(context.client(), uuid(4), thirdUpdatedAt);
 
-        UpdatedAtIdCursor<UUID> nextCursor = context.hardService()
+        String nextCursor = context.hardService()
                 .findAllByUpdatedAtCursor(null, null, 2, Sort.Direction.ASC)
-                .map(page -> decodeUpdatedAtCursor(page.nextCursor()))
+                .map(page -> page.nextCursor())
                 .block();
         assertNotNull(nextCursor);
 
-        StepVerifier.create(context.hardService().findAllByUpdatedAtCursor(
-                        nextCursor.updatedAt(),
-                        nextCursor.id(),
-                        2,
-                        Sort.Direction.ASC
-                ))
+        StepVerifier.create(context.hardService()
+                        .findAllByUpdatedAtCursor(nextCursor, 2, Sort.Direction.ASC))
                 .assertNext(page -> {
                     assertFalse(page.hasNext());
                     assertEquals(List.of(uuid(3), uuid(4)), ids(page.content()));
@@ -927,18 +930,14 @@ class AbstractDaoServiceTest {
         setHardUpdatedAt(context.client(), uuid(3), secondUpdatedAt);
         setHardUpdatedAt(context.client(), uuid(4), thirdUpdatedAt);
 
-        UpdatedAtIdCursor<UUID> nextCursor = context.hardService()
+        String nextCursor = context.hardService()
                 .findAllByUpdatedAtCursor(null, null, 2, Sort.Direction.DESC)
-                .map(page -> decodeUpdatedAtCursor(page.nextCursor()))
+                .map(page -> page.nextCursor())
                 .block();
         assertNotNull(nextCursor);
 
-        StepVerifier.create(context.hardService().findAllByUpdatedAtCursor(
-                        nextCursor.updatedAt(),
-                        nextCursor.id(),
-                        2,
-                        Sort.Direction.DESC
-                ))
+        StepVerifier.create(context.hardService()
+                        .findAllByUpdatedAtCursor(nextCursor, 2, Sort.Direction.DESC))
                 .assertNext(page -> {
                     assertFalse(page.hasNext());
                     assertEquals(List.of(uuid(2), uuid(1)), ids(page.content()));
@@ -1013,23 +1012,18 @@ class AbstractDaoServiceTest {
         setSoftUpdatedAt(context.client(), uuid(3), thirdUpdatedAt);
         markSoftDeleted(context.client(), uuid(2));
 
-        UpdatedAtIdCursor<UUID> nextCursor = context.softService()
+        String nextCursor = context.softService()
                 .findAllByUpdatedAtCursor(null, null, 1, Sort.Direction.ASC)
                 .map(page -> {
                     assertTrue(page.hasNext());
                     assertEquals(List.of(uuid(1)), ids(page.content()));
-                    return decodeUpdatedAtCursor(page.nextCursor());
+                    return page.nextCursor();
                 })
                 .block();
         assertNotNull(nextCursor);
 
         StepVerifier.create(context.softService()
-                        .findAllByUpdatedAtCursor(
-                                nextCursor.updatedAt(),
-                                nextCursor.id(),
-                                2,
-                                Sort.Direction.ASC
-                        ))
+                        .findAllByUpdatedAtCursor(nextCursor, 2, Sort.Direction.ASC))
                 .assertNext(page -> {
                     assertFalse(page.hasNext());
                     assertEquals(List.of(uuid(3)), ids(page.content()));
@@ -1067,6 +1061,46 @@ class AbstractDaoServiceTest {
                                 .findAllByUpdatedAtCursor(null, uuid(1), 1, Sort.Direction.ASC)
                 ).getMessage()
         );
+    }
+
+    @Test
+    void daoServiceWorksWithScannedSpringDataRepositoryProxy() {
+        try (AnnotationConfigApplicationContext applicationContext =
+                new AnnotationConfigApplicationContext(SpringRepositoryTestConfiguration.class)) {
+            DatabaseClient client = applicationContext.getBean(DatabaseClient.class);
+            createSpringRepositorySchema(client);
+            SpringRepositoryFixtureDaoService service =
+                    applicationContext.getBean(SpringRepositoryFixtureDaoService.class);
+            SpringRepositoryFixtureRepository repository =
+                    applicationContext.getBean(SpringRepositoryFixtureRepository.class);
+
+            SpringRepositoryFixture entity = new SpringRepositoryFixture();
+            entity.setName("proxy-backed");
+
+            StepVerifier.create(service.save(entity))
+                    .assertNext(saved -> {
+                        assertNotNull(saved.getId());
+                        assertFalse(saved.isNew());
+                        assertEquals("proxy-backed", saved.getName());
+                    })
+                    .verifyComplete();
+
+            StepVerifier.create(repository.findById(entity.getId()))
+                    .assertNext(found -> {
+                        assertEquals(entity.getId(), found.getId());
+                        assertEquals("proxy-backed", found.getName());
+                        assertFalse(found.isNew());
+                    })
+                    .verifyComplete();
+
+            StepVerifier.create(service.findAllByIdCursor(1, Sort.Direction.ASC))
+                    .assertNext(page -> {
+                        assertFalse(page.hasNext());
+                        assertEquals(List.of(entity.getId()), ids(page.content()));
+                        assertNull(page.nextCursor());
+                    })
+                    .verifyComplete();
+        }
     }
 
     private static TestContext createContext() {
@@ -1115,6 +1149,21 @@ class AbstractDaoServiceTest {
                                 """).fetch().rowsUpdated()
                 ))
                 .expectNextCount(2)
+                .verifyComplete();
+    }
+
+    private static void createSpringRepositorySchema(DatabaseClient client) {
+        StepVerifier.create(client.sql("""
+                        CREATE TABLE "spring_repository_fixture" (
+                            "id" UUID PRIMARY KEY,
+                            "name" VARCHAR(255),
+                            "created_at" TIMESTAMP WITH TIME ZONE,
+                            "updated_at" TIMESTAMP WITH TIME ZONE
+                        )
+                        """)
+                .fetch()
+                .rowsUpdated())
+                .expectNext(0L)
                 .verifyComplete();
     }
 
@@ -1240,6 +1289,56 @@ class AbstractDaoServiceTest {
                 R2dbcEntityTemplate template
         ) {
             super(repository, template, SoftDeleteFixture.class);
+        }
+    }
+
+    private static final class SpringRepositoryFixtureDaoService
+            extends AbstractUuidDaoService<SpringRepositoryFixture, SpringRepositoryFixtureRepository> {
+
+        private SpringRepositoryFixtureDaoService(
+                SpringRepositoryFixtureRepository repository,
+                R2dbcEntityTemplate template
+        ) {
+            super(repository, template, SpringRepositoryFixture.class);
+        }
+    }
+
+    interface SpringRepositoryFixtureRepository
+            extends SimplifiedUuidR2dbcRepository<SpringRepositoryFixture> {
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableR2dbcRepositories(
+            basePackageClasses = AbstractDaoServiceTest.class,
+            considerNestedRepositories = true
+    )
+    static class SpringRepositoryTestConfiguration {
+
+        @Bean
+        ConnectionFactory connectionFactory() {
+            return ConnectionFactories.get(
+                    "r2dbc:h2:mem:///dao_service_repository_proxy_"
+                            + DATABASE_SEQUENCE.incrementAndGet()
+                            + ";DB_CLOSE_DELAY=-1"
+            );
+        }
+
+        @Bean
+        R2dbcEntityTemplate r2dbcEntityTemplate(ConnectionFactory connectionFactory) {
+            return new R2dbcEntityTemplate(connectionFactory);
+        }
+
+        @Bean
+        DatabaseClient databaseClient(ConnectionFactory connectionFactory) {
+            return DatabaseClient.create(connectionFactory);
+        }
+
+        @Bean
+        SpringRepositoryFixtureDaoService springRepositoryFixtureDaoService(
+                SpringRepositoryFixtureRepository repository,
+                R2dbcEntityTemplate template
+        ) {
+            return new SpringRepositoryFixtureDaoService(repository, template);
         }
     }
 
@@ -1375,6 +1474,22 @@ class AbstractDaoServiceTest {
 
     @Table("soft_delete_fixture")
     static class SoftDeleteFixture extends SoftDeleteUuidEntity implements NamedFixture {
+
+        @Column("name")
+        private String name;
+
+        @Override
+        public String getName() {
+            return name;
+        }
+
+        void setName(String name) {
+            this.name = name;
+        }
+    }
+
+    @Table("spring_repository_fixture")
+    static class SpringRepositoryFixture extends UuidEntity implements NamedFixture {
 
         @Column("name")
         private String name;

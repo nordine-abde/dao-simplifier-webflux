@@ -157,6 +157,26 @@ public class UserDaoService
 }
 ```
 
+UUID applications can extend the convenience service instead:
+
+```java
+import anordine.dao.simplifier.webflux.service.AbstractUuidDaoService;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class UserDaoService
+        extends AbstractUuidDaoService<UserEntity, UserRepository> {
+
+    public UserDaoService(
+            UserRepository repository,
+            R2dbcEntityTemplate template
+    ) {
+        super(repository, template, UserEntity.class);
+    }
+}
+```
+
 The DAO service owns common methods such as:
 
 ```java
@@ -176,6 +196,8 @@ These public DAO service types are currently available:
 
 ```text
 anordine.dao.simplifier.webflux.service.AbstractDaoService
+anordine.dao.simplifier.webflux.service.AbstractUuidDaoService
+anordine.dao.simplifier.webflux.service.AbstractSoftDeleteUuidDaoService
 ```
 
 Implemented DAO methods:
@@ -194,7 +216,11 @@ findAll(sort)
 findAll(pageable)
 findAllByCriteria(criteria, pageable)
 findAllByIds(ids)
-findAllByIdCursor(cursorId, limit, direction)
+findAllByIdCursor(limit, direction)
+findAllByIdCursor(cursor, limit, direction)
+findAllByIdCursorAfterId(cursorId, limit, direction)
+findAllByUpdatedAtCursor(limit, direction)
+findAllByUpdatedAtCursor(cursor, limit, direction)
 findAllByUpdatedAtCursor(cursorUpdatedAt, cursorId, limit, direction)
 streamAll()
 streamAllByCriteria(criteria, sort)
@@ -267,28 +293,37 @@ anordine.dao.simplifier.webflux.cursor.CursorPage
 anordine.dao.simplifier.webflux.cursor.IdCursor
 anordine.dao.simplifier.webflux.cursor.UpdatedAtIdCursor
 anordine.dao.simplifier.webflux.cursor.CursorCodec
+anordine.dao.simplifier.webflux.cursor.CursorIdCodec
 anordine.dao.simplifier.webflux.cursor.CursorDecodingException
 ```
 
-`CursorCodec` encodes cursor values as opaque Base64-url strings with stable type discriminators. Applications should not parse or construct those strings directly.
+`CursorCodec` encodes cursor values as opaque Base64-url strings with stable type discriminators. Applications should not parse or construct those strings directly. `AbstractDaoService` accepts a `CursorIdCodec<ID>` constructor argument for custom id types. Default DAO cursor id codecs are provided for UUID, String, Long, and Integer ids; `AbstractUuidDaoService` and `AbstractSoftDeleteUuidDaoService` configure the UUID codec automatically.
 
 Id-based DAO cursor pagination is available when stable ordering by id is acceptable:
 
 ```java
 Mono<CursorPage<UserEntity>> firstPage =
-        dao.findAllByIdCursor(null, 50, Sort.Direction.ASC);
+        dao.findAllByIdCursor(50, Sort.Direction.ASC);
+
+Mono<CursorPage<UserEntity>> nextPage =
+        firstPage.flatMap(page ->
+                dao.findAllByIdCursor(page.nextCursor(), 50, Sort.Direction.ASC));
 ```
 
-`findAllByIdCursor(cursorId, limit, direction)` reads rows after the supplied id, orders by id in the selected direction, fetches `limit + 1` rows internally, and returns at most `limit` entities. When another page exists, `nextCursor` is generated from the last returned id with `CursorCodec`; it is `null` on the final page. For soft-delete entities, DAO-owned cursor reads include `deleted = false`.
+`findAllByIdCursor(limit, direction)` reads the first page. `findAllByIdCursor(cursor, limit, direction)` accepts the opaque `nextCursor` string returned by the previous page and decodes it inside the library. `findAllByIdCursorAfterId(cursorId, limit, direction)` is available as a lower-level typed helper. Id cursor reads order by id in the selected direction, fetch `limit + 1` rows internally, and return at most `limit` entities. When another page exists, `nextCursor` is generated from the last returned id with `CursorCodec`; it is `null` on the final page. For soft-delete entities, DAO-owned cursor reads include `deleted = false`.
 
 Updated-at plus id cursor pagination is available for deterministic "changed rows" views:
 
 ```java
 Mono<CursorPage<UserEntity>> firstPage =
-        dao.findAllByUpdatedAtCursor(null, null, 50, Sort.Direction.DESC);
+        dao.findAllByUpdatedAtCursor(50, Sort.Direction.DESC);
+
+Mono<CursorPage<UserEntity>> nextPage =
+        firstPage.flatMap(page ->
+                dao.findAllByUpdatedAtCursor(page.nextCursor(), 50, Sort.Direction.DESC));
 ```
 
-`findAllByUpdatedAtCursor(cursorUpdatedAt, cursorId, limit, direction)` reads rows after the supplied `(updatedAt, id)` cursor, orders by `updated_at` and then `id` in the selected direction, fetches `limit + 1` rows internally, and returns at most `limit` entities. Both cursor values must be `null` for the first page or both non-null for later pages. When another page exists, `nextCursor` is generated from the last returned row with `CursorCodec` as an `UpdatedAtIdCursor`; it is `null` on the final page. For soft-delete entities, DAO-owned cursor reads include `deleted = false`.
+`findAllByUpdatedAtCursor(limit, direction)` reads the first page. `findAllByUpdatedAtCursor(cursor, limit, direction)` accepts the opaque `nextCursor` string returned by the previous page and decodes it inside the library. `findAllByUpdatedAtCursor(cursorUpdatedAt, cursorId, limit, direction)` remains available as a lower-level typed helper. Updated-at cursor reads order by `updated_at` and then `id` in the selected direction, fetch `limit + 1` rows internally, and return at most `limit` entities. When another page exists, `nextCursor` is generated from the last returned row with `CursorCodec` as an `UpdatedAtIdCursor`; it is `null` on the final page. For soft-delete entities, DAO-owned cursor reads include `deleted = false`.
 
 Streaming reads return `Flux<T>` and are meant for endpoints or pipelines that genuinely stream rows:
 

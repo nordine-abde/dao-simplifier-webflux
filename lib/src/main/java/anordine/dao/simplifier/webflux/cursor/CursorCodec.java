@@ -5,6 +5,7 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -30,6 +31,10 @@ public final class CursorCodec {
     /**
      * Encodes an id cursor as an opaque public string.
      *
+     * <p>The default encoder supports String-like, UUID, numeric, boolean,
+     * enum, and Instant values. Use
+     * {@link #encode(IdCursor, Function)} for custom id value types.
+     *
      * @param cursor id cursor to encode
      * @return opaque Base64-url cursor string
      */
@@ -39,7 +44,25 @@ public final class CursorCodec {
     }
 
     /**
+     * Encodes an id cursor with an explicit id encoder.
+     *
+     * @param cursor id cursor to encode
+     * @param idEncoder converts the id to stable cursor text
+     * @param <ID> id type
+     * @return opaque Base64-url cursor string
+     */
+    public <ID> String encode(IdCursor<ID> cursor, Function<ID, String> idEncoder) {
+        Objects.requireNonNull(cursor, "cursor must not be null");
+        Objects.requireNonNull(idEncoder, "idEncoder must not be null");
+        return encodePayload(ID_TYPE + "\n" + encodeStringField(idEncoder.apply(cursor.id())));
+    }
+
+    /**
      * Encodes an updated-at plus id cursor as an opaque public string.
+     *
+     * <p>The default encoder supports String-like, UUID, numeric, boolean,
+     * enum, and Instant values. Use
+     * {@link #encode(UpdatedAtIdCursor, Function)} for custom id value types.
      *
      * @param cursor updated-at plus id cursor to encode
      * @return opaque Base64-url cursor string
@@ -49,6 +72,22 @@ public final class CursorCodec {
         return encodePayload(UPDATED_AT_ID_TYPE
                 + "\n" + encodeField(cursor.updatedAt())
                 + "\n" + encodeField(cursor.id()));
+    }
+
+    /**
+     * Encodes an updated-at plus id cursor with an explicit id encoder.
+     *
+     * @param cursor updated-at plus id cursor to encode
+     * @param idEncoder converts the id to stable cursor text
+     * @param <ID> id type
+     * @return opaque Base64-url cursor string
+     */
+    public <ID> String encode(UpdatedAtIdCursor<ID> cursor, Function<ID, String> idEncoder) {
+        Objects.requireNonNull(cursor, "cursor must not be null");
+        Objects.requireNonNull(idEncoder, "idEncoder must not be null");
+        return encodePayload(UPDATED_AT_ID_TYPE
+                + "\n" + encodeField(cursor.updatedAt())
+                + "\n" + encodeStringField(idEncoder.apply(cursor.id())));
     }
 
     /**
@@ -119,9 +158,24 @@ public final class CursorCodec {
     }
 
     private String encodeField(Object value) {
+        Object nonNullValue = Objects.requireNonNull(value, "cursor values must not be null");
+        if (!(nonNullValue instanceof CharSequence
+                || nonNullValue instanceof UUID
+                || nonNullValue instanceof Instant
+                || nonNullValue instanceof Number
+                || nonNullValue instanceof Boolean
+                || nonNullValue instanceof Enum<?>)) {
+            throw new IllegalArgumentException(
+                    "Cursor value type " + nonNullValue.getClass().getName()
+                            + " is not supported by the default encoder; provide an explicit id encoder"
+            );
+        }
+        return encodeStringField(nonNullValue.toString());
+    }
+
+    private String encodeStringField(String value) {
         return ENCODER.encodeToString(
                 Objects.requireNonNull(value, "cursor values must not be null")
-                        .toString()
                         .getBytes(StandardCharsets.UTF_8)
         );
     }

@@ -416,6 +416,11 @@ The DAO may collect a bounded `limit + 1` list in memory. This is acceptable bec
 
 Cursors should be opaque to clients.
 
+DAO methods should accept the opaque cursor string returned by
+`CursorPage.nextCursor()` for the next-page call. Typed cursor methods can
+remain available as lower-level helpers, but application clients should not
+need to decode cursor strings themselves.
+
 Recommended v1 shape:
 
 - Encode cursor payload as JSON.
@@ -443,6 +448,12 @@ Example updated-at cursor payload:
 
 If JSON support is not desired in the core library, use a small internal delimiter format for v1, but keep the public cursor string opaque so the encoding can change later.
 
+Because the DAO service is generic over `ID`, id cursor encoding must not rely
+on arbitrary `toString()` values. Provide a `CursorIdCodec<ID>` with explicit
+encoder and decoder functions. The library can include default codecs for
+common id types such as UUID, String, Long, and Integer. UUID convenience DAO
+services should configure the UUID codec automatically.
+
 #### Id Cursor
 
 Support id-based cursor pagination for simple stable ordering by id.
@@ -451,6 +462,17 @@ Expose:
 
 ```java
 public Mono<CursorPage<E>> findAllByIdCursor(
+        int limit,
+        Sort.Direction direction
+)
+
+public Mono<CursorPage<E>> findAllByIdCursor(
+        String cursor,
+        int limit,
+        Sort.Direction direction
+)
+
+public Mono<CursorPage<E>> findAllByIdCursorAfterId(
         ID cursorId,
         int limit,
         Sort.Direction direction
@@ -459,7 +481,9 @@ public Mono<CursorPage<E>> findAllByIdCursor(
 
 Behavior:
 
-- If `cursorId == null`, read the first page.
+- `findAllByIdCursor(limit, direction)` reads the first page.
+- `findAllByIdCursor(cursor, limit, direction)` decodes the opaque cursor string inside the library.
+- `findAllByIdCursorAfterId(cursorId, limit, direction)` is the lower-level typed helper.
 - If `direction == ASC`, query `id > :cursorId`.
 - If `direction == DESC`, query `id < :cursorId`.
 - Always order by id in the selected direction.
@@ -491,6 +515,17 @@ Expose:
 
 ```java
 public Mono<CursorPage<E>> findAllByUpdatedAtCursor(
+        int limit,
+        Sort.Direction direction
+)
+
+public Mono<CursorPage<E>> findAllByUpdatedAtCursor(
+        String cursor,
+        int limit,
+        Sort.Direction direction
+)
+
+public Mono<CursorPage<E>> findAllByUpdatedAtCursor(
         Instant cursorUpdatedAt,
         ID cursorId,
         int limit,
@@ -500,7 +535,9 @@ public Mono<CursorPage<E>> findAllByUpdatedAtCursor(
 
 Behavior:
 
-- If both cursor values are null, read the first page.
+- `findAllByUpdatedAtCursor(limit, direction)` reads the first page.
+- `findAllByUpdatedAtCursor(cursor, limit, direction)` decodes the opaque cursor string inside the library.
+- `findAllByUpdatedAtCursor(cursorUpdatedAt, cursorId, limit, direction)` is the lower-level typed helper.
 - Sort by `updated_at`, then `id`, both in the selected direction.
 - The cursor must include both `updatedAt` and `id`.
 - For soft-delete entities, also apply `deleted = false`.
@@ -551,6 +588,7 @@ Keep the API extensible by isolating cursor logic in helper classes, for example
 
 ```text
 CursorCodec
+CursorIdCodec
 CursorPage
 CursorDirection
 IdCursor

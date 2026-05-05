@@ -107,9 +107,39 @@ class CursorCodecTest {
         assertEquals("Malformed cursor: id cannot be decoded", exception.getMessage());
     }
 
+    @Test
+    void customIdCursorUsesExplicitEncoderAndDecoder() {
+        CustomId id = new CustomId("tenant", 42);
+
+        String encoded = codec.encode(new IdCursor<>(id), customId -> customId.tenant() + ":" + customId.value());
+        IdCursor<CustomId> decoded = codec.decodeIdCursor(encoded, CustomId::parse);
+
+        assertEquals(new IdCursor<>(id), decoded);
+        assertFalse(encoded.contains("tenant"));
+        assertFalse(encoded.contains("42"));
+    }
+
+    @Test
+    void defaultEncoderRejectsCustomIdTypes() {
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> codec.encode(new IdCursor<>(new CustomId("tenant", 42)))
+        );
+
+        assertTrue(exception.getMessage().contains("provide an explicit id encoder"));
+    }
+
     private static String base64Url(String value) {
         return Base64.getUrlEncoder()
                 .withoutPadding()
                 .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private record CustomId(String tenant, int value) {
+
+        private static CustomId parse(String value) {
+            String[] parts = value.split(":", -1);
+            return new CustomId(parts[0], Integer.parseInt(parts[1]));
+        }
     }
 }

@@ -2,6 +2,8 @@ package anordine.dao.simplifier.webflux.service;
 
 import anordine.dao.simplifier.webflux.entity.BaseEntity;
 import anordine.dao.simplifier.webflux.cursor.CursorCodec;
+import anordine.dao.simplifier.webflux.cursor.CursorDecodingException;
+import anordine.dao.simplifier.webflux.cursor.CursorIdCodec;
 import anordine.dao.simplifier.webflux.cursor.CursorPage;
 import anordine.dao.simplifier.webflux.cursor.IdCursor;
 import anordine.dao.simplifier.webflux.cursor.UpdatedAtIdCursor;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.StringJoiner;
+import java.util.UUID;
 import java.util.function.BiFunction;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -77,6 +80,7 @@ public abstract class AbstractDaoService<
      */
     protected final EntityMetadata metadata;
     private final CursorCodec cursorCodec = new CursorCodec();
+    private final CursorIdCodec<ID> cursorIdCodec;
 
     /**
      * Creates a DAO service using the default not-found exception factory.
@@ -91,7 +95,32 @@ public abstract class AbstractDaoService<
             R2dbcEntityTemplate template,
             Class<E> entityClass
     ) {
-        this(repository, template, entityClass, new DefaultEntityNotFoundExceptionFactory());
+        this(repository, template, entityClass, new DefaultEntityNotFoundExceptionFactory(), null);
+    }
+
+    /**
+     * Creates a DAO service using the default not-found exception factory and
+     * an explicit cursor id codec.
+     *
+     * @param repository Spring Data repository for the entity
+     * @param template R2DBC entity template
+     * @param entityClass concrete entity class; passed explicitly to avoid
+     * fragile generic reflection
+     * @param cursorIdCodec codec used for opaque cursor id values
+     */
+    protected AbstractDaoService(
+            R repository,
+            R2dbcEntityTemplate template,
+            Class<E> entityClass,
+            CursorIdCodec<ID> cursorIdCodec
+    ) {
+        this(
+                repository,
+                template,
+                entityClass,
+                new DefaultEntityNotFoundExceptionFactory(),
+                cursorIdCodec
+        );
     }
 
     /**
@@ -109,6 +138,27 @@ public abstract class AbstractDaoService<
             Class<E> entityClass,
             EntityNotFoundExceptionFactory exceptionFactory
     ) {
+        this(repository, template, entityClass, exceptionFactory, null);
+    }
+
+    /**
+     * Creates a DAO service using a custom not-found exception factory and an
+     * explicit cursor id codec.
+     *
+     * @param repository Spring Data repository for the entity
+     * @param template R2DBC entity template
+     * @param entityClass concrete entity class; passed explicitly to avoid
+     * fragile generic reflection
+     * @param exceptionFactory factory used by required-read methods
+     * @param cursorIdCodec codec used for opaque cursor id values
+     */
+    protected AbstractDaoService(
+            R repository,
+            R2dbcEntityTemplate template,
+            Class<E> entityClass,
+            EntityNotFoundExceptionFactory exceptionFactory,
+            CursorIdCodec<ID> cursorIdCodec
+    ) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.template = Objects.requireNonNull(template, "template must not be null");
         this.entityClass = Objects.requireNonNull(entityClass, "entityClass must not be null");
@@ -117,6 +167,7 @@ public abstract class AbstractDaoService<
                 "exceptionFactory must not be null"
         );
         this.metadata = new EntityMetadataResolver(template).resolve(entityClass);
+        this.cursorIdCodec = cursorIdCodec != null ? cursorIdCodec : defaultCursorIdCodec();
     }
 
     /**
@@ -416,6 +467,44 @@ public abstract class AbstractDaoService<
     }
 
     /**
+     * Finds the first bounded seek page ordered by id.
+     *
+     * @param limit maximum number of rows to return
+     * @param direction id sort direction
+     * @return bounded cursor page
+     */
+    @Transactional(readOnly = true)
+    public Mono<CursorPage<E>> findAllByIdCursor(
+            int limit,
+            Sort.Direction direction
+    ) {
+        return findAllByIdCursorAfterId(null, limit, direction);
+    }
+
+    /**
+     * Finds one bounded seek page ordered by id using the opaque cursor
+     * returned by a previous {@link CursorPage#nextCursor()} value. When
+     * {@code cursor} is {@code null}, this reads the first page.
+     *
+     * @param cursor opaque cursor string returned by the previous page, or
+     * {@code null}
+     * @param limit maximum number of rows to return
+     * @param direction id sort direction
+     * @return bounded cursor page
+     */
+    @Transactional(readOnly = true)
+    public Mono<CursorPage<E>> findAllByIdCursor(
+            String cursor,
+            int limit,
+            Sort.Direction direction
+    ) {
+        ID cursorId = cursor == null
+                ? null
+                : cursorCodec.decodeIdCursor(cursor, cursorIdCodec::decode).id();
+        return findAllByIdCursorAfterId(cursorId, limit, direction);
+    }
+
+    /**
      * Finds one bounded seek page ordered by id. When {@code cursorId} is
      * {@code null}, this reads the first page. Soft-delete entities return
      * only rows with {@code deleted = false}. The DAO fetches
@@ -428,7 +517,7 @@ public abstract class AbstractDaoService<
      * @return bounded cursor page
      */
     @Transactional(readOnly = true)
-    public Mono<CursorPage<E>> findAllByIdCursor(
+    public Mono<CursorPage<E>> findAllByIdCursorAfterId(
             ID cursorId,
             int limit,
             Sort.Direction direction
@@ -443,6 +532,51 @@ public abstract class AbstractDaoService<
         return template.select(cursorQuery, entityClass)
                 .collectList()
                 .map(fetchedRows -> idCursorPage(fetchedRows, limit));
+    }
+
+    /**
+     * Finds the first bounded seek page ordered by updated-at and id.
+     *
+     * @param limit maximum number of rows to return
+     * @param direction updated-at and id sort direction
+     * @return bounded cursor page
+     */
+    @Transactional(readOnly = true)
+    public Mono<CursorPage<E>> findAllByUpdatedAtCursor(
+            int limit,
+            Sort.Direction direction
+    ) {
+        return findAllByUpdatedAtCursor(null, null, limit, direction);
+    }
+
+    /**
+     * Finds one bounded seek page ordered by updated-at and id using the opaque
+     * cursor returned by a previous {@link CursorPage#nextCursor()} value.
+     * When {@code cursor} is {@code null}, this reads the first page.
+     *
+     * @param cursor opaque cursor string returned by the previous page, or
+     * {@code null}
+     * @param limit maximum number of rows to return
+     * @param direction updated-at and id sort direction
+     * @return bounded cursor page
+     */
+    @Transactional(readOnly = true)
+    public Mono<CursorPage<E>> findAllByUpdatedAtCursor(
+            String cursor,
+            int limit,
+            Sort.Direction direction
+    ) {
+        UpdatedAtIdCursor<ID> decodedCursor = cursor == null
+                ? null
+                : cursorCodec.decodeUpdatedAtIdCursor(cursor, cursorIdCodec::decode);
+        return decodedCursor == null
+                ? findAllByUpdatedAtCursor(null, null, limit, direction)
+                : findAllByUpdatedAtCursor(
+                        decodedCursor.updatedAt(),
+                        decodedCursor.id(),
+                        limit,
+                        direction
+                );
     }
 
     /**
@@ -615,7 +749,7 @@ public abstract class AbstractDaoService<
         boolean hasNext = fetchedRows.size() > limit;
         List<E> content = hasNext ? fetchedRows.subList(0, limit) : fetchedRows;
         String nextCursor = hasNext
-                ? cursorCodec.encode(new IdCursor<>(content.getLast().getId()))
+                ? cursorCodec.encode(new IdCursor<>(content.getLast().getId()), cursorIdCodec::encode)
                 : null;
         return new CursorPage<>(content, nextCursor, hasNext);
     }
@@ -627,7 +761,7 @@ public abstract class AbstractDaoService<
                 ? cursorCodec.encode(new UpdatedAtIdCursor<>(
                         content.getLast().getUpdatedAt(),
                         content.getLast().getId()
-                ))
+                ), cursorIdCodec::encode)
                 : null;
         return new CursorPage<>(content, nextCursor, hasNext);
     }
@@ -818,5 +952,37 @@ public abstract class AbstractDaoService<
         return metadata.requireSoftDeleteMetadata()
                 .deletedColumn()
                 .getReference();
+    }
+
+    @SuppressWarnings("unchecked")
+    private CursorIdCodec<ID> defaultCursorIdCodec() {
+        Class<?> idType = metadata.idProperty().getActualType();
+        if (UUID.class.equals(idType)) {
+            return (CursorIdCodec<ID>) CursorIdCodec.uuid();
+        }
+        if (String.class.equals(idType)) {
+            return (CursorIdCodec<ID>) CursorIdCodec.string();
+        }
+        if (Long.class.equals(idType) || Long.TYPE.equals(idType)) {
+            return (CursorIdCodec<ID>) CursorIdCodec.longId();
+        }
+        if (Integer.class.equals(idType) || Integer.TYPE.equals(idType)) {
+            return (CursorIdCodec<ID>) CursorIdCodec.integerId();
+        }
+        return CursorIdCodec.of(
+                id -> {
+                    throw unsupportedCursorIdCodec(idType);
+                },
+                value -> {
+                    throw unsupportedCursorIdCodec(idType);
+                }
+        );
+    }
+
+    private CursorDecodingException unsupportedCursorIdCodec(Class<?> idType) {
+        return new CursorDecodingException(
+                "No default cursor id codec for " + idType.getName()
+                        + "; pass a CursorIdCodec to the DAO service constructor"
+        );
     }
 }
