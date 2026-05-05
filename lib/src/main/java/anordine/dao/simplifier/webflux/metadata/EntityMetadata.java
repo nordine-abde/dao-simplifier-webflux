@@ -34,6 +34,9 @@ public record EntityMetadata(
         Optional<SoftDeleteMetadata> softDeleteMetadata
 ) {
 
+    /**
+     * Creates entity metadata.
+     */
     public EntityMetadata {
         Objects.requireNonNull(entityClass, "entityClass must not be null");
         Objects.requireNonNull(tableName, "tableName must not be null");
@@ -48,10 +51,21 @@ public record EntityMetadata(
         Objects.requireNonNull(softDeleteMetadata, "softDeleteMetadata must not be null");
     }
 
+    /**
+     * Returns whether this entity has DAO-managed soft-delete metadata.
+     *
+     * @return whether the entity is soft-delete capable
+     */
     public boolean softDeleteCapable() {
         return softDeleteMetadata.isPresent();
     }
 
+    /**
+     * Returns soft-delete metadata or fails if the entity is hard-delete only.
+     *
+     * @return soft-delete metadata
+     * @throws IllegalStateException if this entity is not soft-delete capable
+     */
     public SoftDeleteMetadata requireSoftDeleteMetadata() {
         return softDeleteMetadata.orElseThrow(() -> new IllegalStateException(
                 "Entity " + entityClass.getName() + " is not soft-delete capable"));
@@ -72,6 +86,9 @@ public record EntityMetadata(
             String renderedDeletedAtColumn
     ) {
 
+        /**
+         * Creates soft-delete metadata.
+         */
         public SoftDeleteMetadata {
             Objects.requireNonNull(deletedColumn, "deletedColumn must not be null");
             Objects.requireNonNull(renderedDeletedColumn, "renderedDeletedColumn must not be null");

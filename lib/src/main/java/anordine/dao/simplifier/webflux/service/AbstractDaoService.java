@@ -52,13 +52,40 @@ public abstract class AbstractDaoService<
     private static final String RAW_PAGE_LIMIT_PARAMETER = "__daoPageLimit";
     private static final String RAW_PAGE_OFFSET_PARAMETER = "__daoPageOffset";
 
+    /**
+     * Spring Data repository used for thin repository operations.
+     */
     protected final R repository;
+
+    /**
+     * R2DBC template used for DAO-owned queries and SQL.
+     */
     protected final R2dbcEntityTemplate template;
+
+    /**
+     * Concrete entity class supplied by the subclass.
+     */
     protected final Class<E> entityClass;
+
+    /**
+     * Factory used by required-read methods.
+     */
     protected final EntityNotFoundExceptionFactory exceptionFactory;
+
+    /**
+     * Resolved Spring Data relational metadata for this DAO entity.
+     */
     protected final EntityMetadata metadata;
     private final CursorCodec cursorCodec = new CursorCodec();
 
+    /**
+     * Creates a DAO service using the default not-found exception factory.
+     *
+     * @param repository Spring Data repository for the entity
+     * @param template R2DBC entity template
+     * @param entityClass concrete entity class; passed explicitly to avoid
+     * fragile generic reflection
+     */
     protected AbstractDaoService(
             R repository,
             R2dbcEntityTemplate template,
@@ -67,6 +94,15 @@ public abstract class AbstractDaoService<
         this(repository, template, entityClass, new DefaultEntityNotFoundExceptionFactory());
     }
 
+    /**
+     * Creates a DAO service using a custom not-found exception factory.
+     *
+     * @param repository Spring Data repository for the entity
+     * @param template R2DBC entity template
+     * @param entityClass concrete entity class; passed explicitly to avoid
+     * fragile generic reflection
+     * @param exceptionFactory factory used by required-read methods
+     */
     protected AbstractDaoService(
             R repository,
             R2dbcEntityTemplate template,
@@ -85,6 +121,9 @@ public abstract class AbstractDaoService<
 
     /**
      * Saves an entity after preparing DAO-managed lifecycle fields.
+     *
+     * @param entity entity to save
+     * @return saved entity
      */
     @Transactional
     public Mono<E> save(E entity) {
@@ -94,8 +133,10 @@ public abstract class AbstractDaoService<
     /**
      * Saves an entity after preparing DAO-managed lifecycle fields.
      *
+     * @param entity entity to save
      * @param asNewWithId when {@code true}, forces an insert using an already
      * assigned id
+     * @return saved entity
      */
     @Transactional
     public Mono<E> save(E entity, boolean asNewWithId) {
@@ -107,6 +148,9 @@ public abstract class AbstractDaoService<
 
     /**
      * Saves all entities after preparing DAO-managed lifecycle fields.
+     *
+     * @param entities entities to save
+     * @return saved entities
      */
     @Transactional
     public Flux<E> saveAll(Collection<E> entities) {
@@ -116,8 +160,10 @@ public abstract class AbstractDaoService<
     /**
      * Saves all entities after preparing DAO-managed lifecycle fields.
      *
+     * @param entities entities to save
      * @param asNewWithId when {@code true}, forces inserts using already
      * assigned ids
+     * @return saved entities
      */
     @Transactional
     public Flux<E> saveAll(Collection<E> entities, boolean asNewWithId) {
@@ -133,6 +179,9 @@ public abstract class AbstractDaoService<
     /**
      * Finds a row by id. Soft-delete entities are filtered by
      * {@code deleted = false}.
+     *
+     * @param id entity id
+     * @return matching visible entity or an empty {@link Mono}
      */
     @Transactional(readOnly = true)
     public Mono<E> findById(ID id) {
@@ -145,6 +194,9 @@ public abstract class AbstractDaoService<
 
     /**
      * Finds a row by id or fails through the configured exception factory.
+     *
+     * @param id entity id
+     * @return matching visible entity or an error from the exception factory
      */
     @Transactional(readOnly = true)
     public Mono<E> findByIdRequired(ID id) {
@@ -157,6 +209,9 @@ public abstract class AbstractDaoService<
     /**
      * Checks row existence by id. Soft-delete entities are filtered by
      * {@code deleted = false}.
+     *
+     * @param id entity id
+     * @return whether a visible row exists
      */
     @Transactional(readOnly = true)
     public Mono<Boolean> existsById(ID id) {
@@ -170,6 +225,8 @@ public abstract class AbstractDaoService<
     /**
      * Counts rows. Soft-delete entities count only rows with
      * {@code deleted = false}.
+     *
+     * @return visible row count
      */
     @Transactional(readOnly = true)
     public Mono<Long> count() {
@@ -182,6 +239,8 @@ public abstract class AbstractDaoService<
     /**
      * Finds all rows. Soft-delete entities return only rows with
      * {@code deleted = false}.
+     *
+     * @return visible rows
      */
     @Transactional(readOnly = true)
     public Flux<E> findAll() {
@@ -194,6 +253,9 @@ public abstract class AbstractDaoService<
     /**
      * Finds all rows with the supplied sort. Soft-delete entities return only
      * rows with {@code deleted = false}.
+     *
+     * @param sort sort to apply
+     * @return sorted visible rows
      */
     @Transactional(readOnly = true)
     public Flux<E> findAll(Sort sort) {
@@ -204,6 +266,9 @@ public abstract class AbstractDaoService<
     /**
      * Finds one classic count-backed page. Soft-delete entities return only
      * rows with {@code deleted = false}.
+     *
+     * @param pageable page request
+     * @return page of visible rows and total count
      */
     @Transactional(readOnly = true)
     public Mono<Page<E>> findAll(Pageable pageable) {
@@ -213,6 +278,10 @@ public abstract class AbstractDaoService<
     /**
      * Finds one classic count-backed page by criteria. Soft-delete entities
      * combine the caller criteria with {@code deleted = false}.
+     *
+     * @param criteria caller criteria
+     * @param pageable page request
+     * @return page of visible matching rows and total count
      */
     @Transactional(readOnly = true)
     public Mono<Page<E>> findAllByCriteria(Criteria criteria, Pageable pageable) {
@@ -238,6 +307,8 @@ public abstract class AbstractDaoService<
      * <p>HTTP streaming depends on the endpoint media type, such as
      * {@code application/x-ndjson} for newline-delimited JSON or
      * {@code text/event-stream} for Server-Sent Events.
+     *
+     * @return direct result stream from the R2DBC template
      */
     @Transactional(readOnly = true)
     public Flux<E> streamAll() {
@@ -252,6 +323,10 @@ public abstract class AbstractDaoService<
      * <p>HTTP streaming depends on the endpoint media type, such as
      * {@code application/x-ndjson} for newline-delimited JSON or
      * {@code text/event-stream} for Server-Sent Events.
+     *
+     * @param criteria caller criteria
+     * @param sort sort to apply
+     * @return direct result stream from the R2DBC template
      */
     @Transactional(readOnly = true)
     public Flux<E> streamAllByCriteria(Criteria criteria, Sort sort) {
@@ -277,6 +352,15 @@ public abstract class AbstractDaoService<
      * <p>Null parameter values are supported with {@code bindNull}. Because the
      * parameter map does not carry null value types, nulls are bound as
      * {@link String} in v1.
+     *
+     * @param baseQuery caller-owned SQL that returns the page content
+     * @param countQuery caller-owned SQL that returns a numeric count in the
+     * first column
+     * @param parameters named SQL parameters
+     * @param pageable page request; sort is not appended in v1
+     * @param mapper row mapper for DTO projection results
+     * @param <T> projection type
+     * @return mapped page content and total count
      */
     @Transactional(readOnly = true)
     public <T> Mono<Page<T>> findPage(
@@ -315,6 +399,9 @@ public abstract class AbstractDaoService<
     /**
      * Finds rows for the given ids. Soft-delete entities return only rows with
      * {@code deleted = false}.
+     *
+     * @param ids ids to read
+     * @return visible rows with matching ids
      */
     @Transactional(readOnly = true)
     public Flux<E> findAllByIds(Collection<ID> ids) {
@@ -331,7 +418,14 @@ public abstract class AbstractDaoService<
     /**
      * Finds one bounded seek page ordered by id. When {@code cursorId} is
      * {@code null}, this reads the first page. Soft-delete entities return
-     * only rows with {@code deleted = false}.
+     * only rows with {@code deleted = false}. The DAO fetches
+     * {@code limit + 1} rows internally and returns an opaque next cursor only
+     * when another page exists.
+     *
+     * @param cursorId last id from the previous page, or {@code null}
+     * @param limit maximum number of rows to return
+     * @param direction id sort direction
+     * @return bounded cursor page
      */
     @Transactional(readOnly = true)
     public Mono<CursorPage<E>> findAllByIdCursor(
@@ -354,7 +448,16 @@ public abstract class AbstractDaoService<
     /**
      * Finds one bounded seek page ordered by updated-at and id. When both
      * cursor values are {@code null}, this reads the first page. Soft-delete
-     * entities return only rows with {@code deleted = false}.
+     * entities return only rows with {@code deleted = false}. The DAO fetches
+     * {@code limit + 1} rows internally and returns an opaque next cursor only
+     * when another page exists.
+     *
+     * @param cursorUpdatedAt updated-at value from the previous page cursor, or
+     * {@code null}
+     * @param cursorId id value from the previous page cursor, or {@code null}
+     * @param limit maximum number of rows to return
+     * @param direction updated-at and id sort direction
+     * @return bounded cursor page
      */
     @Transactional(readOnly = true)
     public Mono<CursorPage<E>> findAllByUpdatedAtCursor(
@@ -384,6 +487,9 @@ public abstract class AbstractDaoService<
      * Deletes a row by the entity id and returns the affected row count.
      * Soft-delete entities are updated in place instead of being physically
      * removed.
+     *
+     * @param entity entity whose id should be deleted
+     * @return affected row count
      */
     @Transactional
     public Mono<Long> delete(E entity) {
@@ -395,6 +501,9 @@ public abstract class AbstractDaoService<
     /**
      * Deletes a row by id and returns the affected row count. Soft-delete
      * entities are updated directly without fetching the entity first.
+     *
+     * @param id entity id
+     * @return affected row count
      */
     @Transactional
     public Mono<Long> deleteById(ID id) {
@@ -408,6 +517,10 @@ public abstract class AbstractDaoService<
     /**
      * Deletes all rows visible to the DAO and returns the affected row count.
      * For soft-delete entities, rows already marked deleted are not counted.
+     * This is a table-wide operation, matching Spring Data {@code deleteAll()}
+     * semantics.
+     *
+     * @return affected row count
      */
     @Transactional
     public Mono<Long> deleteAll() {
@@ -424,6 +537,9 @@ public abstract class AbstractDaoService<
     /**
      * Deletes rows for the given ids and returns the affected row count. Empty
      * collections complete with {@code 0} without issuing SQL.
+     *
+     * @param ids ids to delete
+     * @return affected row count
      */
     @Transactional
     public Mono<Long> deleteAllByIds(Collection<ID> ids) {

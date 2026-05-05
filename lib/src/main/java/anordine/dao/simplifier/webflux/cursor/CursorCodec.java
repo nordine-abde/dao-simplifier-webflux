@@ -22,7 +22,16 @@ public final class CursorCodec {
     private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
 
     /**
+     * Creates a cursor codec.
+     */
+    public CursorCodec() {
+    }
+
+    /**
      * Encodes an id cursor as an opaque public string.
+     *
+     * @param cursor id cursor to encode
+     * @return opaque Base64-url cursor string
      */
     public String encode(IdCursor<?> cursor) {
         Objects.requireNonNull(cursor, "cursor must not be null");
@@ -31,6 +40,9 @@ public final class CursorCodec {
 
     /**
      * Encodes an updated-at plus id cursor as an opaque public string.
+     *
+     * @param cursor updated-at plus id cursor to encode
+     * @return opaque Base64-url cursor string
      */
     public String encode(UpdatedAtIdCursor<?> cursor) {
         Objects.requireNonNull(cursor, "cursor must not be null");
@@ -41,6 +53,11 @@ public final class CursorCodec {
 
     /**
      * Decodes an opaque public string as an id cursor with a string id value.
+     *
+     * @param cursor opaque cursor string
+     * @return decoded id cursor
+     * @throws CursorDecodingException if the cursor is malformed or has the
+     * wrong cursor type
      */
     public IdCursor<String> decodeIdCursor(String cursor) {
         return decodeIdCursor(cursor, Function.identity());
@@ -49,7 +66,12 @@ public final class CursorCodec {
     /**
      * Decodes an opaque public string as an id cursor.
      *
+     * @param cursor opaque cursor string
      * @param idDecoder converts the encoded id text to the caller id type
+     * @param <ID> id type
+     * @return decoded id cursor
+     * @throws CursorDecodingException if the cursor is malformed, has the wrong
+     * cursor type, or the id cannot be decoded
      */
     public <ID> IdCursor<ID> decodeIdCursor(String cursor, Function<String, ID> idDecoder) {
         Objects.requireNonNull(idDecoder, "idDecoder must not be null");
@@ -60,6 +82,11 @@ public final class CursorCodec {
     /**
      * Decodes an opaque public string as an updated-at plus id cursor with a
      * string id value.
+     *
+     * @param cursor opaque cursor string
+     * @return decoded updated-at plus id cursor
+     * @throws CursorDecodingException if the cursor is malformed or has the
+     * wrong cursor type
      */
     public UpdatedAtIdCursor<String> decodeUpdatedAtIdCursor(String cursor) {
         return decodeUpdatedAtIdCursor(cursor, Function.identity());
@@ -68,7 +95,12 @@ public final class CursorCodec {
     /**
      * Decodes an opaque public string as an updated-at plus id cursor.
      *
+     * @param cursor opaque cursor string
      * @param idDecoder converts the encoded id text to the caller id type
+     * @param <ID> id type
+     * @return decoded updated-at plus id cursor
+     * @throws CursorDecodingException if the cursor is malformed, has the wrong
+     * cursor type, or a cursor value cannot be decoded
      */
     public <ID> UpdatedAtIdCursor<ID> decodeUpdatedAtIdCursor(
             String cursor,

@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. T08 has added criteria-based reads and classic count-backed pagination. T09 has added cursor page and cursor encoding primitives. T10 has added id-based DAO cursor pagination. T11 has added updated-at plus id DAO cursor pagination. T12 has added explicit streaming reads. T13 has added raw SQL page helpers for DTO projections.
+> Status: first implementation pass complete through T14. The library now includes the real package structure and reactive R2DBC test foundation, reusable entity hierarchy, thin repository marker interfaces, configurable entity-not-found exceptions, Spring Data R2DBC entity metadata resolver, DAO service save/read/delete/page/cursor/streaming methods, raw SQL page helpers for DTO projections, and public API documentation.
 
 ## Why This Library
 
@@ -374,7 +374,7 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, classic criteria/page reads, cursor page/encoding primitives, id-based DAO cursor pagination, updated-at plus id DAO cursor pagination, streaming reads, and raw SQL page helpers.
+The first implementation pass contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, classic criteria/page reads, cursor page/encoding primitives, id-based DAO cursor pagination, updated-at plus id DAO cursor pagination, streaming reads, raw SQL page helpers, and public API Javadocs.
 
 The v1 design does not include:
 

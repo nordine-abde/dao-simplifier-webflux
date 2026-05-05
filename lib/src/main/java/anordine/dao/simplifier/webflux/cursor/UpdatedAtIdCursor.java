@@ -15,6 +15,9 @@ public record UpdatedAtIdCursor<ID>(
         ID id
 ) {
 
+    /**
+     * Creates an updated-at plus id cursor.
+     */
     public UpdatedAtIdCursor {
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");
         Objects.requireNonNull(id, "id must not be null");

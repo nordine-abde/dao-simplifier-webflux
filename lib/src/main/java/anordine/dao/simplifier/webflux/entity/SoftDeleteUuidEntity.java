@@ -7,6 +7,17 @@ import java.util.UUID;
  */
 public abstract class SoftDeleteUuidEntity extends SoftDeleteEntity<UUID> {
 
+    /**
+     * Creates a UUID soft-delete entity.
+     */
+    public SoftDeleteUuidEntity() {
+    }
+
+    /**
+     * Generates a random UUID for new soft-delete entities.
+     *
+     * @return generated UUID
+     */
     @Override
     protected UUID generateId() {
         return UUID.randomUUID();

@@ -10,6 +10,9 @@ import java.util.Objects;
  */
 public record IdCursor<ID>(ID id) {
 
+    /**
+     * Creates an id cursor.
+     */
     public IdCursor {
         Objects.requireNonNull(id, "id must not be null");
     }

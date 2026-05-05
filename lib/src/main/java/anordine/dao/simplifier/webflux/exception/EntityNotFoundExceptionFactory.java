@@ -7,5 +7,12 @@ package anordine.dao.simplifier.webflux.exception;
 @FunctionalInterface
 public interface EntityNotFoundExceptionFactory {
 
+    /**
+     * Creates a runtime exception for a missing entity id.
+     *
+     * @param entityClass missing entity type
+     * @param id missing id
+     * @return runtime exception to emit from the required-read method
+     */
     RuntimeException create(Class<?> entityClass, Object id);
 }

@@ -21,10 +21,24 @@ public final class EntityMetadataResolver {
 
     private final R2dbcEntityTemplate template;
 
+    /**
+     * Creates a resolver using the mapping context and dialect from the
+     * supplied template.
+     *
+     * @param template R2DBC entity template
+     */
     public EntityMetadataResolver(R2dbcEntityTemplate template) {
         this.template = Objects.requireNonNull(template, "template must not be null");
     }
 
+    /**
+     * Resolves required table, id, lifecycle timestamp, and optional
+     * soft-delete metadata for an entity class.
+     *
+     * @param entityClass entity type to resolve
+     * @return resolved metadata
+     * @throws IllegalStateException if required mapped properties are missing
+     */
     public EntityMetadata resolve(Class<?> entityClass) {
         Objects.requireNonNull(entityClass, "entityClass must not be null");
 

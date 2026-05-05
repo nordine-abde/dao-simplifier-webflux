@@ -17,6 +17,9 @@ public record CursorPage<T>(
         boolean hasNext
 ) {
 
+    /**
+     * Creates a cursor page and defensively copies the content list.
+     */
     public CursorPage {
         Objects.requireNonNull(content, "content must not be null");
         content = List.copyOf(content);
