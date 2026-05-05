@@ -239,10 +239,177 @@ class AbstractDaoServiceTest {
                 .verifyComplete();
     }
 
+    @Test
+    void hardDeleteByIdPhysicallyRemovesOneRowAndReturnsCount() {
+        TestContext context = createContext();
+        HardDeleteFixture saved = context.hardService().save(hardFixture("remove")).block();
+        assertNotNull(saved);
+
+        StepVerifier.create(context.hardService().deleteById(saved.getId()))
+                .expectNext(1L)
+                .verifyComplete();
+        StepVerifier.create(context.hardService().deleteById(saved.getId()))
+                .expectNext(0L)
+                .verifyComplete();
+        StepVerifier.create(context.template().exists(
+                        Query.query(Criteria.where("id").is(saved.getId())),
+                        HardDeleteFixture.class
+                ))
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void hardDeleteEntityDeletesByEntityId() {
+        TestContext context = createContext();
+        HardDeleteFixture saved = context.hardService().save(hardFixture("entity")).block();
+        assertNotNull(saved);
+
+        StepVerifier.create(context.hardService().delete(saved))
+                .expectNext(1L)
+                .verifyComplete();
+        StepVerifier.create(context.hardService().count())
+                .expectNext(0L)
+                .verifyComplete();
+    }
+
+    @Test
+    void hardDeleteAllByIdsRemovesMatchingRows() {
+        TestContext context = createContext();
+        List<HardDeleteFixture> saved = context.hardService()
+                .saveAll(List.of(hardFixture("first"), hardFixture("second"), hardFixture("third")))
+                .collectList()
+                .block();
+        assertNotNull(saved);
+
+        StepVerifier.create(context.hardService().deleteAllByIds(List.of(
+                        saved.get(0).getId(),
+                        saved.get(2).getId(),
+                        UUID.randomUUID()
+                )))
+                .expectNext(2L)
+                .verifyComplete();
+
+        StepVerifier.create(context.hardService().findAll().map(HardDeleteFixture::getId).collectList())
+                .assertNext(ids -> {
+                    assertEquals(1, ids.size());
+                    assertEquals(saved.get(1).getId(), ids.getFirst());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void hardDeleteAllRemovesAllRows() {
+        TestContext context = createContext();
+        context.hardService()
+                .saveAll(List.of(hardFixture("first"), hardFixture("second")))
+                .collectList()
+                .block();
+
+        StepVerifier.create(context.hardService().deleteAll())
+                .expectNext(2L)
+                .verifyComplete();
+        StepVerifier.create(context.hardService().count())
+                .expectNext(0L)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteAllByIdsWithEmptyCollectionReturnsZero() {
+        TestContext context = createContext();
+
+        StepVerifier.create(context.hardService().deleteAllByIds(List.of()))
+                .expectNext(0L)
+                .verifyComplete();
+        StepVerifier.create(context.softService().deleteAllByIds(List.of()))
+                .expectNext(0L)
+                .verifyComplete();
+    }
+
+    @Test
+    void softDeleteByIdUpdatesFlagsAndTimestampsWithoutPriorFetch() {
+        TestContext context = createContext();
+        SoftDeleteFixture saved = context.softService().save(softFixture("remove")).block();
+        assertNotNull(saved);
+        Instant previousUpdatedAt = saved.getUpdatedAt();
+
+        StepVerifier.create(context.softService().deleteById(saved.getId()))
+                .expectNext(1L)
+                .verifyComplete();
+        StepVerifier.create(context.softService().deleteById(saved.getId()))
+                .expectNext(0L)
+                .verifyComplete();
+
+        SoftDeleteFixture rawRow = context.template()
+                .selectOne(Query.query(Criteria.where("id").is(saved.getId())), SoftDeleteFixture.class)
+                .block();
+        assertNotNull(rawRow);
+        assertTrue(rawRow.isDeleted());
+        assertNotNull(rawRow.getDeletedAt());
+        assertTrue(!rawRow.getUpdatedAt().isBefore(previousUpdatedAt));
+
+        StepVerifier.create(context.softService().findById(saved.getId()))
+                .verifyComplete();
+        StepVerifier.create(context.softService().count())
+                .expectNext(0L)
+                .verifyComplete();
+    }
+
+    @Test
+    void softDeleteAllByIdsDoesNotDoubleCountRowsAlreadyDeleted() {
+        TestContext context = createContext();
+        List<SoftDeleteFixture> saved = context.softService()
+                .saveAll(List.of(softFixture("first"), softFixture("second"), softFixture("third")))
+                .collectList()
+                .block();
+        assertNotNull(saved);
+        markSoftDeleted(context.client(), saved.get(1).getId());
+
+        StepVerifier.create(context.softService().deleteAllByIds(
+                        saved.stream().map(SoftDeleteFixture::getId).toList()
+                ))
+                .expectNext(2L)
+                .verifyComplete();
+        StepVerifier.create(context.softService().deleteAllByIds(
+                        saved.stream().map(SoftDeleteFixture::getId).toList()
+                ))
+                .expectNext(0L)
+                .verifyComplete();
+        StepVerifier.create(context.template().count(Query.empty(), SoftDeleteFixture.class))
+                .expectNext(3L)
+                .verifyComplete();
+        StepVerifier.create(context.softService().count())
+                .expectNext(0L)
+                .verifyComplete();
+    }
+
+    @Test
+    void softDeleteAllOnlyCountsVisibleRowsAndKeepsPhysicalRows() {
+        TestContext context = createContext();
+        List<SoftDeleteFixture> saved = context.softService()
+                .saveAll(List.of(softFixture("first"), softFixture("second"), softFixture("third")))
+                .collectList()
+                .block();
+        assertNotNull(saved);
+        markSoftDeleted(context.client(), saved.get(0).getId());
+
+        StepVerifier.create(context.softService().deleteAll())
+                .expectNext(2L)
+                .verifyComplete();
+        StepVerifier.create(context.softService().deleteAll())
+                .expectNext(0L)
+                .verifyComplete();
+        StepVerifier.create(context.template().count(Query.empty(), SoftDeleteFixture.class))
+                .expectNext(3L)
+                .verifyComplete();
+        StepVerifier.create(context.softService().findAll())
+                .verifyComplete();
+    }
+
     private static TestContext createContext() {
         int databaseId = DATABASE_SEQUENCE.incrementAndGet();
         ConnectionFactory connectionFactory = ConnectionFactories.get(
-                "r2dbc:h2:mem:///dao_service_t06_" + databaseId + ";DB_CLOSE_DELAY=-1"
+                "r2dbc:h2:mem:///dao_service_t07_" + databaseId + ";DB_CLOSE_DELAY=-1"
         );
         R2dbcEntityTemplate template = new R2dbcEntityTemplate(connectionFactory);
         DatabaseClient client = DatabaseClient.create(connectionFactory);

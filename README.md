@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. Delete operations, pagination, cursor pagination, streaming reads, and raw SQL page helpers are still planned for later phases.
+> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. Pagination, cursor pagination, streaming reads, and raw SQL page helpers are still planned for later phases.
 
 ## Why This Library
 
@@ -166,6 +166,7 @@ dao.findById(id);
 dao.findByIdRequired(id);
 dao.findAll();
 dao.count();
+dao.deleteById(id);
 ```
 
 These public DAO service types are currently available:
@@ -187,19 +188,25 @@ existsById(id)
 count()
 findAll()
 findAllByIds(ids)
+delete(entity)
+deleteById(id)
+deleteAll()
+deleteAllByIds(ids)
 ```
 
 `save(...)` and `saveAll(...)` call `prePersist(...)`, delegate to the repository, and mark successfully saved entities as not new.
 
 For soft-delete entities, DAO-owned read methods include `deleted = false`. This filtering does not apply to repository methods that applications call directly.
 
-Planned delete methods will return affected row counts:
+Delete methods return affected row counts:
 
 ```java
 Mono<Long> deletedRows = dao.deleteById(id);
 ```
 
-For soft-delete entities, the planned `deleteById(...)` behavior will update `deleted`, `deleted_at`, and `updated_at` directly without fetching the entity first.
+For hard-delete entities, DAO delete methods execute metadata-based physical `DELETE` SQL.
+
+For soft-delete entities, DAO delete methods execute metadata-based `UPDATE` SQL without fetching entities first. They set `deleted = true`, set `deleted_at` and `updated_at`, and include `deleted = false` in the predicate so repeated deletes do not double-count rows already deleted.
 
 ## Metadata Helpers
 
@@ -212,7 +219,7 @@ anordine.dao.simplifier.webflux.metadata.EntityMetadataResolver
 
 `EntityMetadataResolver` reads Spring Data R2DBC relational mapping metadata from `R2dbcEntityTemplate`. It resolves the mapped table, id property and column, lifecycle timestamp columns, and fixed soft-delete columns for entities extending `SoftDeleteEntity`. It fails fast when a required mapped property is missing.
 
-The resolver also stores dialect-rendered table and column names so later metadata-based SQL can honor Spring Data identifier rendering as closely as practical.
+The resolver also stores dialect-rendered table and column names so metadata-based SQL can honor Spring Data identifier rendering as closely as practical.
 
 ## Soft Delete Scope
 
@@ -296,7 +303,7 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, and DAO-service save/basic read methods. Pagination, streaming reads, delete behavior, cursor pagination, and raw SQL page helpers are still planned for later phases.
+The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, and count-returning delete operations. Pagination, streaming reads, cursor pagination, and raw SQL page helpers are still planned for later phases.
 
 The v1 design does not include:
 

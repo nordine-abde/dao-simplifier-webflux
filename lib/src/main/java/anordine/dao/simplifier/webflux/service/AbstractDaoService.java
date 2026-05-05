@@ -6,11 +6,16 @@ import anordine.dao.simplifier.webflux.exception.EntityNotFoundExceptionFactory;
 import anordine.dao.simplifier.webflux.metadata.EntityMetadata;
 import anordine.dao.simplifier.webflux.metadata.EntityMetadataResolver;
 import anordine.dao.simplifier.webflux.repository.SimplifiedR2dbcRepository;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
+import java.util.StringJoiner;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.relational.core.query.Criteria;
 import org.springframework.data.relational.core.query.Query;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -183,6 +188,142 @@ public abstract class AbstractDaoService<
             return repository.findAllById(ids);
         }
         return template.select(Query.query(visibleByIdsCriteria(ids)), entityClass);
+    }
+
+    /**
+     * Deletes a row by the entity id and returns the affected row count.
+     * Soft-delete entities are updated in place instead of being physically
+     * removed.
+     */
+    @Transactional
+    public Mono<Long> delete(E entity) {
+        Objects.requireNonNull(entity, "entity must not be null");
+        ID id = Objects.requireNonNull(entity.getId(), "entity id must not be null");
+        return deleteById(id);
+    }
+
+    /**
+     * Deletes a row by id and returns the affected row count. Soft-delete
+     * entities are updated directly without fetching the entity first.
+     */
+    @Transactional
+    public Mono<Long> deleteById(ID id) {
+        Objects.requireNonNull(id, "id must not be null");
+        if (metadata.softDeleteCapable()) {
+            return softDeleteByIds(List.of(id));
+        }
+        return hardDeleteById(id);
+    }
+
+    /**
+     * Deletes all rows visible to the DAO and returns the affected row count.
+     * For soft-delete entities, rows already marked deleted are not counted.
+     */
+    @Transactional
+    public Mono<Long> deleteAll() {
+        if (metadata.softDeleteCapable()) {
+            return softDeleteAll();
+        }
+        String sql = "DELETE FROM " + metadata.renderedTableName();
+        return template.getDatabaseClient()
+                .sql(sql)
+                .fetch()
+                .rowsUpdated();
+    }
+
+    /**
+     * Deletes rows for the given ids and returns the affected row count. Empty
+     * collections complete with {@code 0} without issuing SQL.
+     */
+    @Transactional
+    public Mono<Long> deleteAllByIds(Collection<ID> ids) {
+        Objects.requireNonNull(ids, "ids must not be null");
+        if (ids.isEmpty()) {
+            return Mono.just(0L);
+        }
+        List<ID> idList = ids.stream()
+                .map(id -> Objects.requireNonNull(id, "ids must not contain null elements"))
+                .toList();
+        if (metadata.softDeleteCapable()) {
+            return softDeleteByIds(idList);
+        }
+        return hardDeleteByIds(idList);
+    }
+
+    private Mono<Long> hardDeleteById(ID id) {
+        String sql = "DELETE FROM " + metadata.renderedTableName()
+                + " WHERE " + metadata.renderedIdColumn() + " = :id";
+        return template.getDatabaseClient()
+                .sql(sql)
+                .bind("id", id)
+                .fetch()
+                .rowsUpdated();
+    }
+
+    private Mono<Long> hardDeleteByIds(Collection<ID> ids) {
+        String sql = "DELETE FROM " + metadata.renderedTableName()
+                + " WHERE " + metadata.renderedIdColumn() + " IN " + namedParameterList("id", ids.size());
+        DatabaseClient.GenericExecuteSpec spec = template.getDatabaseClient().sql(sql);
+        spec = bindIndexed(spec, "id", ids);
+        return spec.fetch().rowsUpdated();
+    }
+
+    private Mono<Long> softDeleteAll() {
+        Instant now = Instant.now();
+        EntityMetadata.SoftDeleteMetadata softDelete = metadata.requireSoftDeleteMetadata();
+        String sql = "UPDATE " + metadata.renderedTableName()
+                + " SET " + softDelete.renderedDeletedColumn() + " = :deleted,"
+                + " " + softDelete.renderedDeletedAtColumn() + " = :deletedAt,"
+                + " " + metadata.renderedUpdatedAtColumn() + " = :updatedAt"
+                + " WHERE " + softDelete.renderedDeletedColumn() + " = :visible";
+        return template.getDatabaseClient()
+                .sql(sql)
+                .bind("deleted", true)
+                .bind("deletedAt", now)
+                .bind("updatedAt", now)
+                .bind("visible", false)
+                .fetch()
+                .rowsUpdated();
+    }
+
+    private Mono<Long> softDeleteByIds(Collection<ID> ids) {
+        Instant now = Instant.now();
+        EntityMetadata.SoftDeleteMetadata softDelete = metadata.requireSoftDeleteMetadata();
+        String sql = "UPDATE " + metadata.renderedTableName()
+                + " SET " + softDelete.renderedDeletedColumn() + " = :deleted,"
+                + " " + softDelete.renderedDeletedAtColumn() + " = :deletedAt,"
+                + " " + metadata.renderedUpdatedAtColumn() + " = :updatedAt"
+                + " WHERE " + metadata.renderedIdColumn() + " IN " + namedParameterList("id", ids.size())
+                + " AND " + softDelete.renderedDeletedColumn() + " = :visible";
+        DatabaseClient.GenericExecuteSpec spec = template.getDatabaseClient()
+                .sql(sql)
+                .bind("deleted", true)
+                .bind("deletedAt", now)
+                .bind("updatedAt", now)
+                .bind("visible", false);
+        spec = bindIndexed(spec, "id", ids);
+        return spec.fetch().rowsUpdated();
+    }
+
+    private String namedParameterList(String prefix, int size) {
+        StringJoiner parameters = new StringJoiner(", ", "(", ")");
+        for (int index = 0; index < size; index++) {
+            parameters.add(":" + prefix + index);
+        }
+        return parameters.toString();
+    }
+
+    private DatabaseClient.GenericExecuteSpec bindIndexed(
+            DatabaseClient.GenericExecuteSpec spec,
+            String prefix,
+            Collection<ID> values
+    ) {
+        List<ID> valueList = new ArrayList<>(values);
+        DatabaseClient.GenericExecuteSpec boundSpec = spec;
+        for (int index = 0; index < valueList.size(); index++) {
+            boundSpec = boundSpec.bind(prefix + index, valueList.get(index));
+        }
+        return boundSpec;
     }
 
     private Criteria visibleByIdCriteria(ID id) {
