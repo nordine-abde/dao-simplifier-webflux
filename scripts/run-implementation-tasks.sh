@@ -70,18 +70,9 @@ Environment:
   LOG_DIR        Directory for Codex task logs. Default: /tmp/dao-simplifier-webflux-codex-task-logs
 
 The script requires a clean git worktree before each task so each phase can be
-committed independently. Codex runs in YOLO mode when the installed CLI supports
---yolo; otherwise the script uses the current equivalent:
---dangerously-bypass-approvals-and-sandbox -a never -s danger-full-access.
+committed independently. Codex runs as:
+codex --yolo exec -C <repo> "<prompt>"
 EOF
-}
-
-resolve_yolo_args() {
-  if "$CODEX_BIN" --help 2>/dev/null | grep -q -- '--yolo'; then
-    printf '%s\n' '--yolo'
-  else
-    printf '%s\n' '--dangerously-bypass-approvals-and-sandbox' '-a' 'never' '-s' 'danger-full-access'
-  fi
 }
 
 ensure_clean_worktree() {
@@ -114,11 +105,9 @@ run_task() {
   local commit_message="${COMMIT_MESSAGES[$task_id]}"
   local log_file="$LOG_DIR/${task_id}.log"
   local prompt
-  local -a yolo_args
 
   ensure_clean_worktree
   mkdir -p "$LOG_DIR"
-  mapfile -t yolo_args < <(resolve_yolo_args)
 
   prompt="$(cat <<EOF
 You are implementing one phase of dao-simplifier-webflux.
@@ -149,7 +138,7 @@ EOF
 )"
 
   echo "==> Running $task_id - $title"
-  "$CODEX_BIN" exec -C "$ROOT_DIR" "${yolo_args[@]}" "$prompt" 2>&1 | tee "$log_file"
+  "$CODEX_BIN" --yolo exec -C "$ROOT_DIR" "$prompt" 2>&1 | tee "$log_file"
 
   echo "==> Verifying $task_id with: $TEST_COMMAND"
   (cd "$ROOT_DIR" && eval "$TEST_COMMAND")
