@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. DAO-service examples below describe the planned v1 API and will become available as later implementation phases land.
+> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver used by later DAO-service SQL helpers. DAO-service examples below describe the planned v1 API and will become available as later implementation phases land.
 
 ## Why This Library
 
@@ -176,6 +176,19 @@ Mono<Long> deletedRows = dao.deleteById(id);
 
 For soft-delete entities, `deleteById(...)` updates `deleted`, `deleted_at`, and `updated_at` directly without fetching the entity first.
 
+## Metadata Helpers
+
+The library currently includes metadata helper types used by the planned DAO services:
+
+```text
+anordine.dao.simplifier.webflux.metadata.EntityMetadata
+anordine.dao.simplifier.webflux.metadata.EntityMetadataResolver
+```
+
+`EntityMetadataResolver` reads Spring Data R2DBC relational mapping metadata from `R2dbcEntityTemplate`. It resolves the mapped table, id property and column, lifecycle timestamp columns, and fixed soft-delete columns for entities extending `SoftDeleteEntity`. It fails fast when a required mapped property is missing.
+
+The resolver also stores dialect-rendered table and column names so later metadata-based SQL can honor Spring Data identifier rendering as closely as practical.
+
 ## Soft Delete Scope
 
 Soft-delete filtering applies only to methods implemented by the library DAO service.
@@ -258,7 +271,7 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, and configurable entity-not-found exceptions. DAO services, metadata helpers, pagination, streaming reads, and delete behavior are still planned for later phases.
+The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, and the entity metadata resolver. DAO services, pagination, streaming reads, and delete behavior are still planned for later phases.
 
 The v1 design does not include:
 
