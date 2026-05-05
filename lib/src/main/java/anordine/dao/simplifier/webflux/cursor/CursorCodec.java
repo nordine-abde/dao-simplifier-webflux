@@ -1,0 +1,144 @@
+package anordine.dao.simplifier.webflux.cursor;
+
+import java.nio.charset.StandardCharsets;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Objects;
+import java.util.function.Function;
+
+/**
+ * Encodes and decodes opaque public cursor strings.
+ *
+ * <p>The encoded string is Base64-url text containing a compact internal
+ * payload with a stable cursor type discriminator. Callers should treat the
+ * returned strings as opaque values.
+ */
+public final class CursorCodec {
+
+    private static final String ID_TYPE = "ID";
+    private static final String UPDATED_AT_ID_TYPE = "UPDATED_AT_ID";
+    private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
+    private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
+
+    /**
+     * Encodes an id cursor as an opaque public string.
+     */
+    public String encode(IdCursor<?> cursor) {
+        Objects.requireNonNull(cursor, "cursor must not be null");
+        return encodePayload(ID_TYPE + "\n" + encodeField(cursor.id()));
+    }
+
+    /**
+     * Encodes an updated-at plus id cursor as an opaque public string.
+     */
+    public String encode(UpdatedAtIdCursor<?> cursor) {
+        Objects.requireNonNull(cursor, "cursor must not be null");
+        return encodePayload(UPDATED_AT_ID_TYPE
+                + "\n" + encodeField(cursor.updatedAt())
+                + "\n" + encodeField(cursor.id()));
+    }
+
+    /**
+     * Decodes an opaque public string as an id cursor with a string id value.
+     */
+    public IdCursor<String> decodeIdCursor(String cursor) {
+        return decodeIdCursor(cursor, Function.identity());
+    }
+
+    /**
+     * Decodes an opaque public string as an id cursor.
+     *
+     * @param idDecoder converts the encoded id text to the caller id type
+     */
+    public <ID> IdCursor<ID> decodeIdCursor(String cursor, Function<String, ID> idDecoder) {
+        Objects.requireNonNull(idDecoder, "idDecoder must not be null");
+        String[] parts = decodeParts(cursor, ID_TYPE, 2);
+        return new IdCursor<>(decodeId(parts[1], idDecoder));
+    }
+
+    /**
+     * Decodes an opaque public string as an updated-at plus id cursor with a
+     * string id value.
+     */
+    public UpdatedAtIdCursor<String> decodeUpdatedAtIdCursor(String cursor) {
+        return decodeUpdatedAtIdCursor(cursor, Function.identity());
+    }
+
+    /**
+     * Decodes an opaque public string as an updated-at plus id cursor.
+     *
+     * @param idDecoder converts the encoded id text to the caller id type
+     */
+    public <ID> UpdatedAtIdCursor<ID> decodeUpdatedAtIdCursor(
+            String cursor,
+            Function<String, ID> idDecoder
+    ) {
+        Objects.requireNonNull(idDecoder, "idDecoder must not be null");
+        String[] parts = decodeParts(cursor, UPDATED_AT_ID_TYPE, 3);
+        return new UpdatedAtIdCursor<>(
+                decodeInstant(parts[1]),
+                decodeId(parts[2], idDecoder)
+        );
+    }
+
+    private String encodePayload(String payload) {
+        return ENCODER.encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String encodeField(Object value) {
+        return ENCODER.encodeToString(
+                Objects.requireNonNull(value, "cursor values must not be null")
+                        .toString()
+                        .getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    private String[] decodeParts(String cursor, String expectedType, int expectedPartCount) {
+        Objects.requireNonNull(cursor, "cursor must not be null");
+        String payload = decodeBase64(cursor, "Malformed cursor: value is not valid Base64-url");
+        String[] parts = payload.split("\n", -1);
+        String actualType = parts[0];
+        if (!expectedType.equals(actualType)) {
+            throw new CursorDecodingException("Cursor type mismatch: expected "
+                    + expectedType + " but found " + actualType);
+        }
+        if (parts.length != expectedPartCount) {
+            throw new CursorDecodingException("Malformed cursor: expected "
+                    + expectedPartCount + " parts but found " + parts.length);
+        }
+        return parts;
+    }
+
+    private String decodeBase64(String value, String errorMessage) {
+        try {
+            return new String(DECODER.decode(value), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException exception) {
+            throw new CursorDecodingException(errorMessage, exception);
+        }
+    }
+
+    private Instant decodeInstant(String value) {
+        String text = decodeBase64(value, "Malformed cursor: updatedAt is not valid Base64-url");
+        try {
+            return Instant.parse(text);
+        } catch (DateTimeException exception) {
+            throw new CursorDecodingException("Malformed cursor: updatedAt is not a valid Instant", exception);
+        }
+    }
+
+    private <ID> ID decodeId(String value, Function<String, ID> idDecoder) {
+        String text = decodeBase64(value, "Malformed cursor: id is not valid Base64-url");
+        try {
+            ID id = idDecoder.apply(text);
+            if (id == null) {
+                throw new CursorDecodingException("Malformed cursor: decoded id must not be null");
+            }
+            return id;
+        } catch (CursorDecodingException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new CursorDecodingException("Malformed cursor: id cannot be decoded", exception);
+        }
+    }
+}

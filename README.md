@@ -4,7 +4,7 @@
 
 It focuses on explicit, testable DAO methods instead of replacing Spring Data repository internals. Repositories stay thin, while DAO services handle entity lifecycle timestamps, required reads, soft delete, count-returning deletes, classic pagination, cursor pagination, and streaming reads.
 
-> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. T08 has added criteria-based reads and classic count-backed pagination. Cursor pagination, streaming reads, and raw SQL page helpers are still planned for later phases.
+> Status: initial implementation in progress. T01 has prepared the real package structure and reactive R2DBC test foundation. T02 has added the reusable entity hierarchy. T03 has added thin repository marker interfaces. T04 has added configurable entity-not-found exceptions. T05 has added the Spring Data R2DBC entity metadata resolver. T06 has added the first usable DAO service with save and basic read methods. T07 has added count-returning hard-delete and soft-delete operations. T08 has added criteria-based reads and classic count-backed pagination. T09 has added cursor page and cursor encoding primitives. DAO cursor pagination methods, streaming reads, and raw SQL page helpers are still planned for later phases.
 
 ## Why This Library
 
@@ -242,7 +242,7 @@ If those queries target soft-delete tables, include `deleted = false` yourself.
 
 ## Pagination
 
-Classic count-backed pagination is available through DAO service methods. Cursor pagination and streaming reads are planned for later phases. The v1 design keeps three separate read styles.
+Classic count-backed pagination is available through DAO service methods. Cursor page primitives are available, while DAO cursor query methods and streaming reads are planned for later phases. The v1 design keeps three separate read styles.
 
 Classic pages are useful for admin screens that need total counts:
 
@@ -255,7 +255,19 @@ Mono<Page<UserEntity>> page = dao.findAllByCriteria(criteria, pageable);
 
 For soft-delete entities, DAO-owned sorted, pageable, and criteria reads include `deleted = false`. Caller criteria is combined with that predicate. Total counts are computed with `R2dbcEntityTemplate.count(...)`, and page content is selected with `R2dbcEntityTemplate.select(...)`.
 
-Cursor pages are useful for efficient seek pagination:
+Cursor pages are useful for efficient seek pagination. The infrastructure types are currently available:
+
+```text
+anordine.dao.simplifier.webflux.cursor.CursorPage
+anordine.dao.simplifier.webflux.cursor.IdCursor
+anordine.dao.simplifier.webflux.cursor.UpdatedAtIdCursor
+anordine.dao.simplifier.webflux.cursor.CursorCodec
+anordine.dao.simplifier.webflux.cursor.CursorDecodingException
+```
+
+`CursorCodec` encodes cursor values as opaque Base64-url strings with stable type discriminators. Applications should not parse or construct those strings directly.
+
+Planned DAO cursor pagination methods will return `CursorPage<T>`:
 
 ```java
 Mono<CursorPage<UserEntity>> page =
@@ -314,7 +326,7 @@ The automation requires a clean git worktree before each phase, runs tests after
 
 ## Current Limitations
 
-The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, and classic criteria/page reads. Streaming reads, cursor pagination, and raw SQL page helpers are still planned for later phases.
+The current codebase contains the package/test foundation, reusable entity hierarchy, repository marker interfaces, configurable entity-not-found exceptions, the entity metadata resolver, DAO-service save/basic read methods, count-returning delete operations, classic criteria/page reads, and cursor page/encoding primitives. DAO cursor query methods, streaming reads, and raw SQL page helpers are still planned for later phases.
 
 The v1 design does not include:
 
